@@ -7551,7 +7551,7 @@ finish</field>
 				<object type="Step" id="754">
 				    <base type="Entity">
 					<field name="name">&lt;Prometheus unique entity name au.edu.rmit.cs.prometheus.datamodel.jacob.Step ID=737&gt;</field>
-					<field name="description"></field>
+					<field name="description">Se computa la viabilidad de la venta del producto en la tienda y se genera una decisión</field>
 					<field name="uniqueId">737</field>
 				    </base>
 
@@ -7583,7 +7583,7 @@ finish</field>
 				<object type="Step" id="756">
 				    <base type="Entity">
 					<field name="name">&lt;Prometheus unique entity name au.edu.rmit.cs.prometheus.datamodel.jacob.Step ID=739&gt;</field>
-					<field name="description"></field>
+					<field name="description">Se notifica del resultado calculado en el paso 2</field>
 					<field name="uniqueId">739</field>
 				    </base>
 
