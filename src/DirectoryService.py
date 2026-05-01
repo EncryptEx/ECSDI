@@ -47,6 +47,11 @@ app = Flask(__name__)
 directory = {}
 loadbalance = {}
 schedule = 'equaljobs'
+log_prefix = 'directorio'
+
+
+def log(msg):
+    print(f'[{log_prefix}] {msg}', flush=True)
 
 
 @app.route("/message")
@@ -79,8 +84,10 @@ def message():
                     if serid not in directory:
                         directory[serid] = (sertype, seraddress, time.strftime('%Y-%m-%d %H:%M'))
                         loadbalance[serid] = 0
+                        log(f'REGISTER  {serid} type={sertype} @ {seraddress}')
                         return 'OK: REGISTER SUCCESS'
                     else:
+                        log(f'REGISTER FAILED: {serid} already registered')
                         return 'ERROR: ID ALREADY REGISTERED'
                 else:
                     return 'ERROR: REGISTER INVALID PARAMETERS'
@@ -98,16 +105,20 @@ def message():
                     else:
                         pos = 0
                     loadbalance[found[pos][0]] += 1
+                    log(f'SEARCH    {sertype} -> {found[pos][0]} @ {found[pos][1]}')
                     return 'OK: ' + found[pos][1]
                 else:
+                    log(f'SEARCH    {sertype} -> NOT FOUND')
                     return 'ERROR: NOT FOUND'
             # parametros del mensaje UNREGISTER = 'ID'
             elif messtype == 'UNREGISTER':
                 serid = messparam
                 if serid in directory:
+                    log(f'UNREGISTER {serid}')
                     del directory[serid]
                     return 'OK: UNREGISTER SUCCESS'
                 else:
+                    log(f'UNREGISTER FAILED: {serid} not registered')
                     return 'ERROR: NOT REGISTERED'
 
 
@@ -127,6 +138,7 @@ def stop():
     """
     Entrada que para el agente
     """
+    log('Stopping server')
     shutdown_server()
     return "Parando Servidor"
 
@@ -145,8 +157,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if not args.verbose:
-        log = logging.getLogger('werkzeug')
-        log.setLevel(logging.ERROR)
+        _wlog = logging.getLogger('werkzeug')
+        _wlog.setLevel(logging.ERROR)
 
     # Configuration stuff
     if args.port is None:
@@ -161,7 +173,7 @@ if __name__ == '__main__':
         hostaddr = hostname = socket.gethostname()
 
     schedule = args.schedule
-
-    print('DS Hostname =', hostaddr)
+    log_prefix = f'directorio-{port}'
+    log(f'DS Hostname = {hostaddr}, schedule={schedule}')
     # Ponemos en marcha el servidor Flask
     app.run(host=hostname, port=port, debug=False, use_reloader=False)

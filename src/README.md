@@ -59,7 +59,7 @@ asignar una tarea a otros agentes
     Entradas Web:
        /info = Lista de problemas recibidos
 
- * Arithmetic.py
+ * Ventas.py
 
     Solver de problemas ARITH (evalua una expresion aritmetica)
 
@@ -69,7 +69,7 @@ asignar una tarea a otros agentes
       --port = port de comunicacion (9020 por defecto)
       --dir = Direccion completa del servicio de directorio
 
- * LetterCounter.py
+ * CentroLogistico.py
 
     Solver de problemas MFREQ (calcula las 10 letras mas frecuentes de un texto)
 
@@ -108,12 +108,12 @@ Pasos:
 
   $ python3 Logger.py --port 9100 --dir http://nombre.de.la.maquina:9000
 
- 3- Iniciar una o mas copias de Solver, Arithmetic y LetterCounter (los agentes
+ 3- Iniciar una o mas copias de Solver, Ventas y CentroLogistico (los agentes
     Solver tambien tienen una pagina /info que se puede monitorizar)
 
   $ python3 Solver.py --port 9010 --dir http://nombre.de.la.maquina:9000
-  $ python3 Arithmetic.py --port 9020 --dir http://nombre.de.la.maquina:9000
-  $ python3 LetterCounter.py --port 9030 --dir http://nombre.de.la.maquina:9000
+  $ python3 Ventas.py --port 9020 --dir http://nombre.de.la.maquina:9000
+  $ python3 CentroLogistico.py --port 9030 --dir http://nombre.de.la.maquina:9000
 
  4- Inicial Client y abrir en el navegador las paginas /iface y /info
 

@@ -19,8 +19,10 @@ Client
 
 from Util import gethostname
 import argparse
+import json
 from FlaskServer import shutdown_server
 import requests
+from requests import ConnectionError
 from flask import Flask, request, render_template, url_for, redirect
 import logging
 import socket
@@ -33,6 +35,11 @@ problems = {}
 probcounter = 0
 clientid = ''
 diraddress = ''
+log_prefix = 'client'
+
+
+def log(msg):
+    print(f'[{log_prefix}] {msg}', flush=True)
 
 
 @app.route("/message", methods=['GET', 'POST'])
@@ -45,22 +52,11 @@ def message():
     global problems
 
     # if request.form.has_key('message'):
-    if 'message' in request.form:
-        send_message(request.form['problem'], request.form['message'])
+    if 'product' in request.form:
+        log(f'Buy request: product={request.form["product"]} qty={request.form["quantity"]}')
+        send_message(request.form['product'], request.form['quantity'])
         return redirect(url_for('.iface'))
     else:
-        # Respuesta del solver SOLVED|PROBID,SOLUTION
-        mess = request.args['message'].split('|')
-        if len(mess) == 2:
-            messtype, messparam = mess
-            if messtype == 'SOLVED':
-                solution = messparam.split(',')
-                if len(solution) == 2:
-                    probid, sol = solution
-                    if probid in problems:
-                        problems[probid][2] = sol
-                    else:  # Para el script de test de stress
-                        problems[probid] = ['DUMMY', 'DUMMY', sol]
         return 'OK'
 
 
@@ -71,7 +67,7 @@ def info():
     """
     global problems
 
-    return render_template('clientproblems.html', probs=problems)
+    return render_template('clientinteractions.html', probs=problems)
 
 
 @app.route('/iface')
@@ -79,8 +75,7 @@ def iface():
     """
     Interfaz con el cliente a traves de una pagina de web
     """
-    probtypes = ['ARITH', 'MFREQ']
-    return render_template('iface.html', types=probtypes)
+    return render_template('iface.html')
 
 
 @app.route("/stop")
@@ -88,21 +83,21 @@ def stop():
     """
     Entrada que para el agente
     """
+    log('Stopping server')
     shutdown_server()
     return "Parando Servidor"
 
 
-def send_message(probtype, problem):
+def send_message(product, quantity):
     """
-    Envia un request a un solver
+    Envia una solicitud de compra al agente de ventas
 
     mensaje:
 
-    SOLVE|TYPE,PROBLEM,PROBID,CLIENTID
+    PRODUCTOS_A_COMPRAR|{"product": quantity}
 
-    :param probid:
-    :param probtype:
-    :param proble:
+    :param product: nombre del producto a comprar
+    :param quantity: cantidad del producto
     :return:
     """
     global probcounter
@@ -114,33 +109,26 @@ def send_message(probtype, problem):
     probid = f'{clientid}-{probcounter:03}'
     probcounter += 1
 
-    # Busca un sotver en el servicio de directorio
-    solveradd = requests.get(diraddress + '/message', params={'message': f'SEARCH|SOLVER'}).text
-    # Solver encontrado
-    if 'OK' in solveradd:
-        # Le quitamos el OK de la respuesta
-        solveradd = solveradd[4:]
+    # Busca el agente de ventas en el servicio de directorio
+    ventasaddr = requests.get(diraddress + '/message', params={'message': 'SEARCH|VENTAS'}).text
+    # Agente de ventas encontrado
+    if 'OK' in ventasaddr:
+        ventasaddr = ventasaddr[4:]
 
-        problems[probid] = [probtype, problem, 'PENDING']
-        mess = f'SOLVE|{probtype},{clientadd},{probid},{sanitize(problem)}'
-        resp = requests.get(solveradd + '/message', params={'message': mess}).text
-        if 'ERROR' not in resp:
-            problems[probid] = [probtype, problem, 'PENDING']
-        else:
-            problems[probid] = [probtype, problem, 'FAILED SOLVER']
-    # Solver no encontrado
+        products = {product: int(quantity)}
+        problems[probid] = [product, quantity, 'PENDING']
+        mess = f'PRODUCTOS_A_COMPRAR|{json.dumps(products)}'
+        try:
+            resp = requests.get(ventasaddr + '/message', params={'message': mess}).text
+            if 'ERROR' not in resp:
+                problems[probid][2] = 'SENT'
+            else:
+                problems[probid][2] = 'FAILED VENTAS'
+        except ConnectionError:
+            problems[probid][2] = 'FAILED CONNECTION'
+    # Agente de ventas no encontrado
     else:
-        problems[probid] = (probtype, problem, 'FAILED DS')
-
-
-def sanitize(prob):
-    """
-    remove problematic punctuation signs from the string of the problem
-    :param prob:
-    :return:
-    """
-    return prob.replace(',', '*')
-
+        problems[probid] = [product, quantity, 'FAILED DS']
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -154,8 +142,8 @@ if __name__ == '__main__':
     # parsing de los parametros de la linea de comandos
     args = parser.parse_args()
     if not args.verbose:
-        log = logging.getLogger('werkzeug')
-        log.setLevel(logging.ERROR)
+        _wlog = logging.getLogger('werkzeug')
+        _wlog.setLevel(logging.ERROR)
 
     # Configuration stuff
     if args.port is None:
@@ -169,7 +157,8 @@ if __name__ == '__main__':
     else:
         hostaddr = hostname = socket.gethostname()
 
-    print('DS Hostname =', hostaddr)
+    log_prefix = f'client-{port}'
+    log(f'DS Hostname = {hostaddr}')
 
     clientadd = f'http://{hostaddr}:{port}'
     clientid = hostaddr.split('.')[0] + '-' + str(port)
@@ -179,5 +168,6 @@ if __name__ == '__main__':
     else:
         diraddress = args.dir
 
+    log(f'Starting at {clientadd}, directory={diraddress}')
     # Ponemos en marcha el servidor Flask
     app.run(host=hostname, port=port, debug=False, use_reloader=False)
