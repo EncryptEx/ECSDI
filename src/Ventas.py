@@ -54,7 +54,7 @@ def message():
         return 'ERROR: INVALID MESSAGE'
     else:
         # Sintaxis de los mensajes "TIPO|PARAMETROS"
-        messtype, messparam = mess.split('|')
+        messtype, messparam = mess.split('|', 1)
         log(f'Received {messtype}')
 
         if messtype not in ['PRODUCTOS_A_COMPRAR']:
@@ -62,8 +62,31 @@ def message():
             return 'ERROR: INVALID REQUEST'
         else:
             if messtype == 'PRODUCTOS_A_COMPRAR':
-                products_to_buy = json.loads(messparam)
+                try:
+                    payload = json.loads(messparam)
+                except Exception:
+                    return 'ERROR: INVALID PAYLOAD'
+
+                delivery_address = ''
+                if isinstance(payload, dict) and 'products' in payload:
+                    products_to_buy = payload.get('products', {})
+                    delivery_address = payload.get('delivery_address', '')
+                elif isinstance(payload, dict):
+                    products_to_buy = payload
+                else:
+                    return 'ERROR: INVALID PAYLOAD'
+
+                if not isinstance(products_to_buy, dict):
+                    return 'ERROR: INVALID PRODUCTS'
+
+                try:
+                    products_to_buy = {str(prod): int(qty) for prod, qty in products_to_buy.items() if int(qty) > 0}
+                except Exception:
+                    return 'ERROR: INVALID PRODUCTS'
+
                 log(f'Processing PRODUCTOS_A_COMPRAR: {products_to_buy}')
+                if delivery_address:
+                    log(f'Delivery address: {delivery_address}')
 
                 # Get all logistics centers from directory service
                 response = query_directory_service('SEARCHALL|CENTRO_LOGISTICO')
