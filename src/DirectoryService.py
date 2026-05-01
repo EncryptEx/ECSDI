@@ -20,6 +20,7 @@ DirectoryService
 from Util import gethostname
 import socket
 import argparse
+import json
 from FlaskServer import shutdown_server
 
 from flask import Flask, request, render_template
@@ -73,7 +74,7 @@ def message():
         # Sintaxis de los mensajes "TIPO|PARAMETROS"
         messtype, messparam = mess.split('|')
 
-        if messtype not in ['REGISTER', 'SEARCH', 'UNREGISTER']:
+        if messtype not in ['REGISTER', 'SEARCH', 'SEARCHALL', 'UNREGISTER']:
             return 'ERROR: NO SUCH ACTION'
         else:
             # parametros mensaje REGISTER = "ID,TIPO,ADDRESS"
@@ -109,6 +110,15 @@ def message():
                     return 'OK: ' + found[pos][1]
                 else:
                     log(f'SEARCH    {sertype} -> NOT FOUND')
+                    return 'ERROR: NOT FOUND'
+            # parametros del mensaje SEARCHALL = 'TIPO' -> devuelve todas las direcciones del tipo
+            elif messtype == 'SEARCHALL':
+                sertype = messparam
+                found = [directory[id][1] for id in directory if directory[id][0] == sertype]
+                log(f'SEARCHALL {sertype} -> {len(found)} found')
+                if found:
+                    return 'OK: ' + json.dumps(found)
+                else:
                     return 'ERROR: NOT FOUND'
             # parametros del mensaje UNREGISTER = 'ID'
             elif messtype == 'UNREGISTER':
@@ -152,6 +162,7 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, help="Puerto de comunicacion del agente")
     parser.add_argument('--schedule', default='random', choices=['equaljobs', 'random'],
                         help="Algoritmo de reparto de carga")
+    parser.add_argument('--hostaddr', default=None, help="Direccion del agente anunciada al exterior (sobreescribe la deteccion automatica)")
 
     # parsing de los parametros de la linea de comandos
     args = parser.parse_args()
@@ -168,9 +179,9 @@ if __name__ == '__main__':
 
     if args.open:
         hostname = '0.0.0.0'
-        hostaddr = gethostname()
+        hostaddr = args.hostaddr if args.hostaddr else gethostname()
     else:
-        hostaddr = hostname = socket.gethostname()
+        hostaddr = hostname = args.hostaddr if args.hostaddr else socket.gethostname()
 
     schedule = args.schedule
     log_prefix = f'directorio-{port}'

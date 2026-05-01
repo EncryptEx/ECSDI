@@ -52,9 +52,11 @@ def message():
     global problems
 
     # if request.form.has_key('message'):
-    if 'product' in request.form:
-        log(f'Buy request: product={request.form["product"]} qty={request.form["quantity"]}')
-        send_message(request.form['product'], request.form['quantity'])
+    if 'product[]' in request.form:
+        products_list = request.form.getlist('product[]')
+        quantities_list = request.form.getlist('quantity[]')
+        log(f'Buy request: {list(zip(products_list, quantities_list))}')
+        send_message(products_list, quantities_list)
         return redirect(url_for('.iface'))
     else:
         return 'OK'
@@ -88,16 +90,16 @@ def stop():
     return "Parando Servidor"
 
 
-def send_message(product, quantity):
+def send_message(products_list, quantities_list):
     """
     Envia una solicitud de compra al agente de ventas
 
     mensaje:
 
-    PRODUCTOS_A_COMPRAR|{"product": quantity}
+    PRODUCTOS_A_COMPRAR|{"product": quantity, ...}
 
-    :param product: nombre del producto a comprar
-    :param quantity: cantidad del producto
+    :param products_list: lista de nombres de productos
+    :param quantities_list: lista de cantidades correspondientes
     :return:
     """
     global probcounter
@@ -109,26 +111,35 @@ def send_message(product, quantity):
     probid = f'{clientid}-{probcounter:03}'
     probcounter += 1
 
+    products = {p: int(q) for p, q in zip(products_list, quantities_list)}
+    log(f'New order {probid}: {products}')
+
     # Busca el agente de ventas en el servicio de directorio
+    log('Searching for VENTAS in directory service')
     ventasaddr = requests.get(diraddress + '/message', params={'message': 'SEARCH|VENTAS'}).text
     # Agente de ventas encontrado
     if 'OK' in ventasaddr:
         ventasaddr = ventasaddr[4:]
+        log(f'Found VENTAS at {ventasaddr}')
 
-        products = {product: int(quantity)}
-        problems[probid] = [product, quantity, 'PENDING']
+        problems[probid] = [products, 'PENDING']
         mess = f'PRODUCTOS_A_COMPRAR|{json.dumps(products)}'
+        log(f'Sending to VENTAS: {mess}')
         try:
             resp = requests.get(ventasaddr + '/message', params={'message': mess}).text
             if 'ERROR' not in resp:
-                problems[probid][2] = 'SENT'
+                problems[probid][1] = 'SENT'
+                log(f'{probid} sent successfully')
             else:
-                problems[probid][2] = 'FAILED VENTAS'
+                problems[probid][1] = 'FAILED VENTAS'
+                log(f'{probid} VENTAS returned error: {resp}')
         except ConnectionError:
-            problems[probid][2] = 'FAILED CONNECTION'
+            problems[probid][1] = 'FAILED CONNECTION'
+            log(f'{probid} connection error to VENTAS at {ventasaddr}')
     # Agente de ventas no encontrado
     else:
-        problems[probid] = [product, quantity, 'FAILED DS']
+        problems[probid] = [products, 'FAILED DS']
+        log(f'{probid} VENTAS not found in directory service')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -138,6 +149,7 @@ if __name__ == '__main__':
                         default=False)
     parser.add_argument('--port', default=None, type=int, help="Puerto de comunicacion del agente")
     parser.add_argument('--dir', default=None, help="Direccion del servicio de directorio")
+    parser.add_argument('--hostaddr', default=None, help="Direccion del agente anunciada al exterior (sobreescribe la deteccion automatica)")
 
     # parsing de los parametros de la linea de comandos
     args = parser.parse_args()
@@ -153,9 +165,9 @@ if __name__ == '__main__':
 
     if args.open:
         hostname = '0.0.0.0'
-        hostaddr = gethostname()
+        hostaddr = args.hostaddr if args.hostaddr else gethostname()
     else:
-        hostaddr = hostname = socket.gethostname()
+        hostaddr = hostname = args.hostaddr if args.hostaddr else socket.gethostname()
 
     log_prefix = f'client-{port}'
     log(f'DS Hostname = {hostaddr}')

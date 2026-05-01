@@ -11,6 +11,7 @@ set -u
 DIR_HOST="127.0.0.1"
 DIR_PORT="9000"
 DIR_URL="http://${DIR_HOST}:${DIR_PORT}"
+HOSTADDR="127.0.0.1"
 
 # Prefer local env python, then active env python, then system python3
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -69,14 +70,14 @@ shutdown_all() {
 
 trap shutdown_all EXIT INT TERM
 
-start_agent "DirectoryService" "$PYTHON" DirectoryService.py --port 9000 --open
-start_agent "Logger"          "$PYTHON" Logger.py --port 9100 --dir "$DIR_URL" --open
-start_agent "Client"          "$PYTHON" Client.py --port 9010 --dir "$DIR_URL" --open
-start_agent "Ventas"          "$PYTHON" Ventas.py --port 9020 --dir "$DIR_URL" --open
-start_agent "CentroLogistico0" "$PYTHON" CentroLogistico.py --port 9030 --dir "$DIR_URL" --open
-start_agent "CentroLogistico1" "$PYTHON" CentroLogistico.py --port 9031 --dir "$DIR_URL" --open
-start_agent "CentroLogistico2" "$PYTHON" CentroLogistico.py --port 9032 --dir "$DIR_URL" --open
-start_agent "CentroLogistico3" "$PYTHON" CentroLogistico.py --port 9033 --dir "$DIR_URL" --open
+start_agent "DirectoryService"  "$PYTHON" DirectoryService.py  --port 9000  --open --hostaddr "$HOSTADDR"
+start_agent "Logger"             "$PYTHON" Logger.py             --port 9100  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
+start_agent "Client"             "$PYTHON" Client.py             --port 9010  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
+start_agent "Ventas"             "$PYTHON" Ventas.py             --port 9020  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
+start_agent "CentroLogistico0"   "$PYTHON" CentroLogistico.py   --port 9030  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
+start_agent "CentroLogistico1"   "$PYTHON" CentroLogistico.py   --port 9031  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
+start_agent "CentroLogistico2"   "$PYTHON" CentroLogistico.py   --port 9032  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
+start_agent "CentroLogistico3"   "$PYTHON" CentroLogistico.py   --port 9033  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
 
 echo
 echo "Agents are running."

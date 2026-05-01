@@ -21,12 +21,14 @@ WordCounter
 from Util import gethostname
 import socket
 import argparse
+import json
 from FlaskServer import shutdown_server
 import requests
 from flask import Flask, request
 from requests import ConnectionError
 from multiprocessing import Process
 from collections import Counter
+import random
 import logging
 
 __author__ = 'bejar'
@@ -59,21 +61,22 @@ def message():
         # Sintaxis de los mensajes "TIPO|PARAMETROS"
         messtype, messparam = mess.split('|')
 
-        if messtype not in ['PRODUCTOS_A_COMPRAR', 'BUY']:
+        if messtype not in ['EXIST?', 'BUY']:
             log(f'Unknown request: {messtype}')
             return 'ERROR: INVALID REQUEST'
 
-        if messtype == 'PRODUCTOS_A_COMPRAR':
-            log(f'PRODUCTOS_A_COMPRAR: {messparam}')
-            # extract conjunto de productos y cantidades
-            productos_cantidades = messparam.split(',')
-            productos_cantidades = {productos_cantidades[i]: int(productos_cantidades[i+1]) for i in range(0, len(productos_cantidades), 2)}
-            log(f'Products requested: {productos_cantidades}')
-            return 'OK'
+        if messtype == 'EXIST?':
+            # Dado un array de {producto: qty}, responder el mismo array con un bool por producto
+            requested = json.loads(messparam)
+            log(f'EXIST? query for: {requested}')
+            response = {product: random.choice([True, False]) for product in requested}
+            log(f'EXIST? response: {response}')
+            return json.dumps(response)
 
         elif messtype == 'BUY':
-            log(f'BUY: {messparam}')
-            # TODO: implement buy logic
+            products = json.loads(messparam)
+            log(f'BUY: {products}')
+            # TODO: persist inventory changes
             return 'OK'
             
 
@@ -109,6 +112,7 @@ if __name__ == '__main__':
                         default=False)
     parser.add_argument('--port', type=int, help="Puerto de comunicacion del agente")
     parser.add_argument('--dir', default=None, help="Direccion del servicio de directorio")
+    parser.add_argument('--hostaddr', default=None, help="Direccion del agente anunciada al exterior (sobreescribe la deteccion automatica)")
 
     # parsing de los parametros de la linea de comandos
     args = parser.parse_args()
@@ -124,9 +128,9 @@ if __name__ == '__main__':
 
     if args.open:
         hostname = '0.0.0.0'
-        hostaddr = gethostname()
+        hostaddr = args.hostaddr if args.hostaddr else gethostname()
     else:
-        hostaddr = hostname = socket.gethostname()
+        hostaddr = hostname = args.hostaddr if args.hostaddr else socket.gethostname()
 
     log_prefix = f'logistico-{port}'
     log(f'DS Hostname = {hostaddr}')

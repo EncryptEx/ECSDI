@@ -128,6 +128,7 @@ if __name__ == '__main__':
                         default=False)
     parser.add_argument('--port', type=int, help="Puerto de comunicacion del agente")
     parser.add_argument('--dir', default=None, help="Direccion del servicio de directorio")
+    parser.add_argument('--hostaddr', default=None, help="Direccion del agente anunciada al exterior (sobreescribe la deteccion automatica)")
 
     # parsing de los parametros de la linea de comandos
     args = parser.parse_args()
@@ -144,9 +145,9 @@ if __name__ == '__main__':
 
     if args.open:
         hostname = '0.0.0.0'
-        hostaddr = gethostname()
+        hostaddr = args.hostaddr if args.hostaddr else gethostname()
     else:
-        hostaddr = hostname = socket.gethostname()
+        hostaddr = hostname = args.hostaddr if args.hostaddr else socket.gethostname()
 
     if args.dir is None:
         raise NameError('A Directory Service addess is needed')

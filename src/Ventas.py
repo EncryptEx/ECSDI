@@ -65,35 +65,49 @@ def message():
                 products_to_buy = json.loads(messparam)
                 log(f'Processing PRODUCTOS_A_COMPRAR: {products_to_buy}')
 
-                centros_logisticos = []
-                response = query_directory_service('QUERY|LOGISTIC')
-                if response != 'ERROR: CONNECTION ERROR':
-                    centros_logisticos = json.loads(response)
+                # Get all logistics centers from directory service
+                response = query_directory_service('SEARCHALL|CENTRO_LOGISTICO')
+                if response == 'ERROR: CONNECTION ERROR' or 'ERROR' in response:
+                    log('No logistics centers found in directory service')
+                    return 'ERROR: NO LOGISTICS CENTERS'
+
+                centros_logisticos = json.loads(response[4:])  # strip 'OK: '
                 log(f'Logistics centers available: {centros_logisticos}')
 
-                for centro in centros_logisticos:
-                    response = query_directory_service(f'QUERY|{centro}')
-                    if response != 'ERROR: CONNECTION ERROR':
-                        productos_disponibles = json.loads(response)
-                        log(f'Center {centro} has: {productos_disponibles}')
+                for centro_addr in centros_logisticos:
+                    if not products_to_buy:
+                        break
+                    # Ask center which products it can handle
+                    try:
+                        resp = requests.get(centro_addr + '/message',
+                                            params={'message': f'EXIST?|{json.dumps(products_to_buy)}'}).text
+                    except ConnectionError:
+                        log(f'Center {centro_addr} unreachable')
+                        continue
 
-                        productos_a_comprar = {}
-                        for producto in list(products_to_buy.keys()):
-                            if producto in productos_disponibles:
-                                productos_a_comprar[producto] = products_to_buy[producto]
-                                del products_to_buy[producto]
-                        if len(productos_a_comprar) > 0:
-                            log(f'Buying from {centro}: {productos_a_comprar}')
-                            response = query_directory_service(f'BUY|{centro},{json.dumps(productos_a_comprar)}')
-                            if response != 'ERROR: CONNECTION ERROR':
-                                log(f'Purchase from {centro} OK')
-                            else:
-                                log(f'Purchase from {centro} FAILED: connection error')
+                    availability = json.loads(resp)  # {product: bool, ...}
+                    log(f'Center {centro_addr} availability: {availability}')
+
+                    to_buy_here = {p: products_to_buy[p] for p, ok in availability.items() if ok}
+                    if not to_buy_here:
+                        log(f'Center {centro_addr} cannot handle any remaining product, skipping')
+                        continue
+
+                    # Buy only the confirmed products from this center
+                    try:
+                        log(f'Attempting to buy from {centro_addr}: {to_buy_here}')
+                        buy_resp = requests.get(centro_addr + '/message',
+                                                params={'message': f'BUY|{json.dumps(to_buy_here)}'}).text
+                        if 'ERROR' not in buy_resp:
+                            log(f'Bought from {centro_addr}: {to_buy_here}')
+                            for product in to_buy_here:
+                                del products_to_buy[product]
                         else:
-                            log(f'Center {centro} has none of the required products, skipping')
-                    else:
-                        log(f'Center {centro} unreachable')
-                if len(products_to_buy) > 0:
+                            log(f'BUY from {centro_addr} failed: {buy_resp}')
+                    except ConnectionError:
+                        log(f'Center {centro_addr} unreachable during BUY')
+
+                if products_to_buy:
                     log(f'Purchase incomplete, remaining: {products_to_buy}')
                 else:
                     log('All products purchased successfully')
@@ -148,6 +162,7 @@ if __name__ == '__main__':
                         default=False)
     parser.add_argument('--port', type=int, help="Puerto de comunicacion del agente")
     parser.add_argument('--dir', default=None, help="Direccion del servicio de directorio")
+    parser.add_argument('--hostaddr', default=None, help="Direccion del agente anunciada al exterior (sobreescribe la deteccion automatica)")
 
     # parsing de los parametros de la linea de comandos
     args = parser.parse_args()
@@ -164,9 +179,9 @@ if __name__ == '__main__':
 
     if args.open:
         hostname = '0.0.0.0'
-        hostaddr = gethostname()
+        hostaddr = args.hostaddr if args.hostaddr else gethostname()
     else:
-        hostaddr = hostname = socket.gethostname()
+        hostaddr = hostname = args.hostaddr if args.hostaddr else socket.gethostname()
 
     log_prefix = f'ventas-{port}'
     log(f'DS Hostname = {hostaddr}')

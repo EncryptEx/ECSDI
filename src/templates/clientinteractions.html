@@ -14,21 +14,25 @@
 
 <h1> Posted Interactions</h1>
 <p></p>
-Problems Solved = {{probs|length}}
+Orders = {{probs|length}}
 <p></p>
 <table>
     <tr>
-        <th>Prob ID</th>
-        <th>Producto</th>
-        <th>Cantidad</th>
+        <th>Order ID</th>
+        <th>Productos</th>
         <th>Estado</th>
     </tr>
     {% for id in probs|sort %}
     <tr>
         <td>{{id}}</td>
-        <td>{{probs[id][0]}}</td>
+        <td>
+            <ul style="margin:0; padding-left:16px">
+            {% for prod, qty in probs[id][0].items() %}
+                <li>{{prod}} × {{qty}}</li>
+            {% endfor %}
+            </ul>
+        </td>
         <td>{{probs[id][1]}}</td>
-        <td>{{probs[id][2]}}</td>
      </tr>
     {% endfor %}
 </table>
