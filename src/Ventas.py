@@ -73,7 +73,8 @@ def message():
 
                 centros_logisticos = json.loads(response[4:])  # strip 'OK: '
                 log(f'Logistics centers available: {centros_logisticos}')
-
+                # TODO: IMPLEMENT sorting by nearest based on location (needed to ask to user for location in the first place to calc distance)
+                # TODO: arrossegar adreça d'entrega
                 for centro_addr in centros_logisticos:
                     if not products_to_buy:
                         break

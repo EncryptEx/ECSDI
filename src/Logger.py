@@ -179,3 +179,7 @@ if __name__ == '__main__':
         requests.get(diraddress + '/message', params={'message': mess})
     else:
         print('Unable to register')
+        
+        # todo all terminal logs must go to the logger as well.
+        # todo implement a node-based graph and see packets flying between agents in real time, with the possibility to click on them and see the content of the messages.
+        

@@ -69,7 +69,7 @@ def message():
             # Dado un array de {producto: qty}, responder el mismo array con un bool por producto
             requested = json.loads(messparam)
             log(f'EXIST? query for: {requested}')
-            response = {product: random.choice([True, False]) for product in requested}
+            response = {product: random.choice([True, False, True]) for product in requested}
             log(f'EXIST? response: {response}')
             return json.dumps(response)
 
