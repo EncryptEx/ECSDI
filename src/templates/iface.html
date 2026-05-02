@@ -1,151 +1,213 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Cliente Compra</title>
+    <title>Asistente de compra</title>
     <style>
         body { font-family: sans-serif; margin: 20px; }
         .box { border: 1px solid #bbb; border-radius: 6px; padding: 12px; margin-bottom: 16px; }
+        .subbox { border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 10px 0; }
         .row { display: flex; gap: 10px; flex-wrap: wrap; }
         .field { display: flex; flex-direction: column; gap: 4px; }
         table { border-collapse: collapse; width: 100%; }
         th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
         .msg { margin: 10px 0; font-weight: bold; }
-        .small { width: 120px; }
+        .small { width: 110px; }
+        .selected { background-color: #e9f7ef; }
+        .error { color: #b30000; font-weight: bold; }
+        .muted { color: #555; }
+        .actions { display: flex; gap: 8px; margin-top: 12px; }
     </style>
 </head>
 <body>
-<h2>Busqueda y compra</h2>
+<h2>Asistente de compra por restricciones</h2>
 
 {% if iface_message %}
 <div class="msg">{{ iface_message }}</div>
 {% endif %}
 
 <div class="box">
-    <h3>Buscar productos</h3>
+    <h3>Lista de restricciones (una fila por producto deseado)</h3>
     <form action="/message" method="post">
         <input type="hidden" name="action" value="search">
-        <div class="row">
-            <div class="field">
-                <label>Nombre</label>
-                <input type="text" name="name" value="{{ filters.name }}">
-            </div>
-            <div class="field">
-                <label>Marca</label>
-                <input type="text" name="brand" value="{{ filters.brand }}">
-            </div>
-            <div class="field">
-                <label>Vendedor</label>
-                <input type="text" name="seller" value="{{ filters.seller }}">
-            </div>
-            <div class="field">
-                <label>Tags (coma)</label>
-                <input type="text" name="tags" value="{{ filters.tags }}">
-            </div>
-            <div class="field">
-                <label>Precio min</label>
-                <input class="small" type="number" step="0.01" min="0" name="min_price" value="{{ filters.min_price }}">
-            </div>
-            <div class="field">
-                <label>Precio max</label>
-                <input class="small" type="number" step="0.01" min="0" name="max_price" value="{{ filters.max_price }}">
-            </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Nombre</th>
+                    <th>Marca</th>
+                    <th>Vendedor</th>
+                    <th>Tags (coma)</th>
+                    <th>Precio min</th>
+                    <th>Precio max</th>
+                    <th>Accion</th>
+                </tr>
+            </thead>
+            <tbody id="restrictions-body">
+                {% for row in restriction_rows %}
+                <tr class="restriction-row">
+                    <td class="row-number">{{ loop.index }}</td>
+                    <td><input type="text" name="name" value="{{ row.name }}"></td>
+                    <td><input type="text" name="brand" value="{{ row.brand }}"></td>
+                    <td><input type="text" name="seller" value="{{ row.seller }}"></td>
+                    <td><input type="text" name="tags" value="{{ row.tags }}"></td>
+                    <td><input class="small" type="number" step="0.01" min="0" name="min_price" value="{{ row.min_price }}"></td>
+                    <td><input class="small" type="number" step="0.01" min="0" name="max_price" value="{{ row.max_price }}"></td>
+                    <td><button type="button" onclick="removeRow(this)">Eliminar</button></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div class="actions">
+            <button type="button" onclick="addRow()">Anadir fila</button>
+            <button type="submit">Buscar propuestas</button>
         </div>
-        <p>
-            <button type="submit">Buscar</button>
-        </p>
     </form>
+</div>
 
-    {% if search_results %}
+{% if search_groups %}
+<div class="box">
+    <h3>Resultados por fila de restricciones</h3>
+    {% for group in search_groups %}
+    <div class="subbox">
+        <p>
+            <strong>Fila {{ group.row_index }}</strong>
+            <span class="muted">
+                (nombre="{{ group.filters.name }}", marca="{{ group.filters.brand }}", vendedor="{{ group.filters.seller }}")
+            </span>
+        </p>
+        {% if group.error %}
+        <p class="error">Error: {{ group.error }}</p>
+        {% elif group.results %}
+        <table>
+            <tr>
+                <th>Nombre</th>
+                <th>Marca</th>
+                <th>Vendedor</th>
+                <th>Tags</th>
+                <th>Precio</th>
+                <th>Valoracion</th>
+                <th>Decision</th>
+            </tr>
+            {% for p in group.results %}
+            <tr class="{% if group.selected and p.id == group.selected.id %}selected{% endif %}">
+                <td>{{ p.name }}</td>
+                <td>{{ p.brand }}</td>
+                <td>{{ p.seller }}</td>
+                <td>{{ p.tags | join(', ') }}</td>
+                <td>{{ '%.2f' | format(p.price) }} EUR</td>
+                <td>{{ '%.2f' | format(p.rating) }}</td>
+                <td>
+                    {% if group.selected and p.id == group.selected.id %}
+                    Seleccionado por el asistente
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <p>No hay productos que cumplan esta fila de restricciones.</p>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% elif has_searched %}
+<div class="box">
+    <p>No hay resultados para las filas actuales.</p>
+</div>
+{% endif %}
+
+<div class="box">
+    <h3>Propuesta final del asistente (1 producto por fila)</h3>
+    {% if proposal %}
     <table>
         <tr>
+            <th>Fila</th>
             <th>Nombre</th>
             <th>Marca</th>
             <th>Vendedor</th>
             <th>Tags</th>
             <th>Precio</th>
-            <th>Anadir</th>
+            <th>Valoracion</th>
         </tr>
-        {% for p in search_results %}
+        {% for item in proposal %}
+        {% set p = item.product %}
         <tr>
+            <td>{{ item.row_index }}</td>
             <td>{{ p.name }}</td>
             <td>{{ p.brand }}</td>
             <td>{{ p.seller }}</td>
             <td>{{ p.tags | join(', ') }}</td>
             <td>{{ '%.2f' | format(p.price) }} EUR</td>
-            <td>
-                <form action="/message" method="post" style="display:flex; gap:6px; align-items:center;">
-                    <input type="hidden" name="action" value="add_to_cart">
-                    <input type="hidden" name="product_name" value="{{ p.name }}">
-                    <input type="hidden" name="brand" value="{{ p.brand }}">
-                    <input type="hidden" name="seller" value="{{ p.seller }}">
-                    <input type="hidden" name="price" value="{{ p.price }}">
-                    <input type="hidden" name="tags" value="{{ p.tags | join(',') }}">
-                    <input class="small" type="number" name="quantity" min="1" value="1" required>
-                    <button type="submit">Anadir</button>
-                </form>
-            </td>
-        </tr>
-        {% endfor %}
-    </table>
-    {% elif has_searched %}
-    <p>No hay resultados para los filtros actuales.</p>
-    {% endif %}
-</div>
-
-<div class="box">
-    <h3>Carrito</h3>
-    {% if cart %}
-    <table>
-        <tr>
-            <th>Producto</th>
-            <th>Marca</th>
-            <th>Vendedor</th>
-            <th>Precio</th>
-            <th>Cantidad</th>
-            <th>Subtotal</th>
-            <th>Acciones</th>
-        </tr>
-        {% for name, item in cart.items() %}
-        <tr>
-            <td>{{ item.name }}</td>
-            <td>{{ item.brand }}</td>
-            <td>{{ item.seller }}</td>
-            <td>{{ '%.2f' | format(item.price) }} EUR</td>
-            <td>
-                <form action="/message" method="post" style="display:flex; gap:6px; align-items:center;">
-                    <input type="hidden" name="action" value="update_cart_item">
-                    <input type="hidden" name="product_name" value="{{ name }}">
-                    <input class="small" type="number" name="quantity" min="0" value="{{ item.quantity }}" required>
-                    <button type="submit">Actualizar</button>
-                </form>
-            </td>
-            <td>{{ '%.2f' | format(item.price * item.quantity) }} EUR</td>
-            <td>
-                <form action="/message" method="post">
-                    <input type="hidden" name="action" value="remove_cart_item">
-                    <input type="hidden" name="product_name" value="{{ name }}">
-                    <button type="submit">Eliminar</button>
-                </form>
-            </td>
+            <td>{{ '%.2f' | format(p.rating) }}</td>
         </tr>
         {% endfor %}
     </table>
 
-    <p><strong>Total: {{ '%.2f' | format(cart_total) }} EUR</strong></p>
+    <p><strong>Total estimado: {{ '%.2f' | format(proposal_total) }} EUR</strong></p>
 
     <form action="/message" method="post">
-        <input type="hidden" name="action" value="checkout">
+        <input type="hidden" name="action" value="confirm_proposal">
         <div class="field">
             <label>Direccion de entrega</label>
-            <input type="text" name="delivery_address" required>
+            <input type="text" name="delivery_address" value="{{ delivery_address }}" required>
         </div>
         <p>
-            <button type="submit">Checkout</button>
+            <button type="submit">Confirmar propuesta y comprar</button>
         </p>
     </form>
+    {% elif has_searched %}
+    <p>El asistente no ha podido seleccionar productos con las restricciones actuales.</p>
     {% else %}
-    <p>El carrito esta vacio.</p>
+    <p>Primero busca productos para que el asistente pueda generar una propuesta.</p>
     {% endif %}
 </div>
+
+<template id="restriction-template">
+    <tr class="restriction-row">
+        <td class="row-number"></td>
+        <td><input type="text" name="name" value=""></td>
+        <td><input type="text" name="brand" value=""></td>
+        <td><input type="text" name="seller" value=""></td>
+        <td><input type="text" name="tags" value=""></td>
+        <td><input class="small" type="number" step="0.01" min="0" name="min_price" value=""></td>
+        <td><input class="small" type="number" step="0.01" min="0" name="max_price" value=""></td>
+        <td><button type="button" onclick="removeRow(this)">Eliminar</button></td>
+    </tr>
+</template>
+
+<script>
+function refreshRowNumbers() {
+    const rows = document.querySelectorAll('#restrictions-body .restriction-row');
+    rows.forEach((row, idx) => {
+        const numberCell = row.querySelector('.row-number');
+        numberCell.textContent = String(idx + 1);
+    });
+}
+
+function addRow() {
+    const template = document.getElementById('restriction-template');
+    const body = document.getElementById('restrictions-body');
+    body.appendChild(template.content.cloneNode(true));
+    refreshRowNumbers();
+}
+
+function removeRow(button) {
+    const body = document.getElementById('restrictions-body');
+    const rows = body.querySelectorAll('.restriction-row');
+    if (rows.length <= 1) {
+        const inputs = rows[0].querySelectorAll('input');
+        inputs.forEach((input) => {
+            input.value = '';
+        });
+        return;
+    }
+    button.closest('tr').remove();
+    refreshRowNumbers();
+}
+
+refreshRowNumbers();
+</script>
 </body>
 </html>

@@ -36,22 +36,103 @@ probcounter = 0
 clientid = ''
 diraddress = ''
 log_prefix = 'client'
-search_results = []
-last_filters = {
+search_groups = []
+assistant_proposal = []
+last_restrictions = [{
     'name': '',
     'brand': '',
     'seller': '',
     'tags': '',
     'min_price': '',
     'max_price': ''
-}
-cart = {}
+}]
+last_delivery_address = ''
 iface_message = ''
 has_searched = False
 
 
 def log(msg):
     print(f'[{log_prefix}] {msg}', flush=True)
+
+
+def parse_restrictions(form):
+    names = form.getlist('name')
+    brands = form.getlist('brand')
+    sellers = form.getlist('seller')
+    tags_list = form.getlist('tags')
+    min_prices = form.getlist('min_price')
+    max_prices = form.getlist('max_price')
+
+    max_rows = max(
+        len(names),
+        len(brands),
+        len(sellers),
+        len(tags_list),
+        len(min_prices),
+        len(max_prices),
+        1
+    )
+
+    rows = []
+    entries = []
+
+    for i in range(max_rows):
+        row = {
+            'name': names[i].strip() if i < len(names) else '',
+            'brand': brands[i].strip() if i < len(brands) else '',
+            'seller': sellers[i].strip() if i < len(sellers) else '',
+            'tags': tags_list[i].strip() if i < len(tags_list) else '',
+            'min_price': min_prices[i].strip() if i < len(min_prices) else '',
+            'max_price': max_prices[i].strip() if i < len(max_prices) else ''
+        }
+        rows.append(row)
+
+        if not any(row.values()):
+            continue
+
+        try:
+            min_price = float(row['min_price']) if row['min_price'] else None
+            max_price = float(row['max_price']) if row['max_price'] else None
+        except ValueError:
+            return [], rows, f'Fila {i + 1}: los precios minimo y maximo deben ser numericos'
+
+        if min_price is not None and max_price is not None and min_price > max_price:
+            return [], rows, f'Fila {i + 1}: el precio minimo no puede ser mayor que el maximo'
+
+        tags = [t.strip() for t in row['tags'].split(',') if t.strip()]
+
+        entries.append({
+            'row_index': i + 1,
+            'raw': row,
+            'filters': {
+                'name': row['name'],
+                'brand': row['brand'],
+                'seller': row['seller'],
+                'tags': tags,
+                'min_price': min_price,
+                'max_price': max_price
+            }
+        })
+
+    return entries, rows, None
+
+
+def choose_product(results):
+    if not results:
+        return None
+
+    def ranking_key(product):
+        try:
+            rating = float(product.get('rating', 0.0))
+        except (TypeError, ValueError):
+            rating = 0.0
+        try:
+            price = float(product.get('price', 1e12))
+        except (TypeError, ValueError):
+            price = 1e12
+        return (-rating, price, product.get('name', ''))
+
+    return sorted(results, key=ranking_key)[0]
 
 
 @app.route("/message", methods=['GET', 'POST'])
@@ -62,125 +143,101 @@ def message():
     :return:
     """
     global iface_message
-    global search_results
-    global cart
-    global last_filters
+    global search_groups
+    global assistant_proposal
+    global last_restrictions
+    global last_delivery_address
     global has_searched
 
     if request.method == 'POST':
         action = request.form.get('action', '').strip()
 
         if action == 'search':
-            name = request.form.get('name', '').strip()
-            brand = request.form.get('brand', '').strip()
-            seller = request.form.get('seller', '').strip()
-            tags_raw = request.form.get('tags', '').strip()
-            min_price = request.form.get('min_price', '').strip()
-            max_price = request.form.get('max_price', '').strip()
+            entries, rows, parse_error = parse_restrictions(request.form)
+            last_restrictions = rows if rows else [{
+                'name': '',
+                'brand': '',
+                'seller': '',
+                'tags': '',
+                'min_price': '',
+                'max_price': ''
+            }]
 
-            tags = [t.strip() for t in tags_raw.split(',') if t.strip()]
-
-            try:
-                min_price_value = float(min_price) if min_price else None
-                max_price_value = float(max_price) if max_price else None
-            except ValueError:
-                iface_message = 'Los precios minimo y maximo deben ser numericos'
+            if parse_error:
+                iface_message = parse_error
                 return redirect(url_for('.iface'))
 
-            filters = {
-                'name': name,
-                'brand': brand,
-                'seller': seller,
-                'tags': tags,
-                'min_price': min_price_value,
-                'max_price': max_price_value
-            }
-
-            last_filters = {
-                'name': name,
-                'brand': brand,
-                'seller': seller,
-                'tags': tags_raw,
-                'min_price': min_price,
-                'max_price': max_price
-            }
-
-            results, error = search_products(filters)
-            has_searched = True
-            if error:
-                search_results = []
-                iface_message = f'Error de busqueda: {error}'
-            else:
-                search_results = results
-                iface_message = f'Se han encontrado {len(search_results)} productos'
-
-        elif action == 'add_to_cart':
-            product_name = request.form.get('product_name', '').strip()
-            brand = request.form.get('brand', '').strip()
-            seller = request.form.get('seller', '').strip()
-            tags = [t.strip() for t in request.form.get('tags', '').split(',') if t.strip()]
-
-            try:
-                price = float(request.form.get('price', '0'))
-                quantity = int(request.form.get('quantity', '1'))
-            except ValueError:
-                iface_message = 'Cantidad o precio invalidos'
+            if not entries:
+                iface_message = 'Debes introducir al menos una fila de restricciones'
+                has_searched = False
+                search_groups = []
+                assistant_proposal = []
                 return redirect(url_for('.iface'))
 
-            if quantity <= 0:
-                iface_message = 'La cantidad debe ser mayor que cero'
-                return redirect(url_for('.iface'))
+            groups = []
+            proposal = []
+            error_count = 0
 
-            if product_name in cart:
-                cart[product_name]['quantity'] += quantity
-            else:
-                cart[product_name] = {
-                    'name': product_name,
-                    'brand': brand,
-                    'seller': seller,
-                    'price': price,
-                    'tags': tags,
-                    'quantity': quantity
-                }
-
-            iface_message = f'Anadido al carrito: {product_name} x{quantity}'
-
-        elif action == 'update_cart_item':
-            product_name = request.form.get('product_name', '').strip()
-            try:
-                quantity = int(request.form.get('quantity', '1'))
-            except ValueError:
-                iface_message = 'Cantidad invalida'
-                return redirect(url_for('.iface'))
-
-            if product_name in cart:
-                if quantity <= 0:
-                    del cart[product_name]
-                    iface_message = f'Producto eliminado del carrito: {product_name}'
+            for entry in entries:
+                results, error = search_products(entry['filters'])
+                selected = None
+                if error is None:
+                    selected = choose_product(results)
                 else:
-                    cart[product_name]['quantity'] = quantity
-                    iface_message = f'Cantidad actualizada: {product_name} x{quantity}'
+                    error_count += 1
 
-        elif action == 'remove_cart_item':
-            product_name = request.form.get('product_name', '').strip()
-            if product_name in cart:
-                del cart[product_name]
-                iface_message = f'Producto eliminado del carrito: {product_name}'
+                group = {
+                    'row_index': entry['row_index'],
+                    'filters': entry['raw'],
+                    'results': results,
+                    'error': error,
+                    'selected': selected
+                }
+                groups.append(group)
 
-        elif action == 'checkout':
+                if selected is not None:
+                    proposal.append({
+                        'row_index': entry['row_index'],
+                        'filters': entry['raw'],
+                        'product': selected
+                    })
+
+            search_groups = groups
+            assistant_proposal = proposal
+            has_searched = True
+
+            if error_count == len(entries):
+                iface_message = 'No se pudo buscar ninguna fila de restricciones'
+            elif error_count > 0:
+                iface_message = (
+                    f'Se han procesado {len(entries)} filas: '
+                    f'{len(assistant_proposal)} propuestas y {error_count} errores de busqueda'
+                )
+            else:
+                iface_message = (
+                    f'Se han procesado {len(entries)} filas y '
+                    f'el asistente ha propuesto {len(assistant_proposal)} productos'
+                )
+
+        elif action == 'confirm_proposal':
             delivery_address = request.form.get('delivery_address', '').strip()
-            if not cart:
-                iface_message = 'No se puede tramitar el pedido con el carrito vacio'
+            last_delivery_address = delivery_address
+
+            if not assistant_proposal:
+                iface_message = 'No hay propuesta del asistente para confirmar'
                 return redirect(url_for('.iface'))
 
             if not delivery_address:
                 iface_message = 'La direccion de entrega es obligatoria'
                 return redirect(url_for('.iface'))
 
-            products = {name: data['quantity'] for name, data in cart.items()}
+            products = {}
+            for item in assistant_proposal:
+                product_name = item['product']['name']
+                products[product_name] = products.get(product_name, 0) + 1
+
             order_id, status = send_message(products, delivery_address)
             if status == 'SENT':
-                cart = {}
                 iface_message = f'Pedido {order_id} enviado correctamente'
             else:
                 iface_message = f'Pedido {order_id} no enviado ({status})'
@@ -205,13 +262,15 @@ def iface():
     """
     Interfaz con el cliente a traves de una pagina de web
     """
-    cart_total = sum(item['price'] * item['quantity'] for item in cart.values())
+    proposal_total = sum(item['product']['price'] for item in assistant_proposal)
+
     return render_template(
         'iface.html',
-        search_results=search_results,
-        cart=cart,
-        cart_total=cart_total,
-        filters=last_filters,
+        restriction_rows=last_restrictions,
+        search_groups=search_groups,
+        proposal=assistant_proposal,
+        proposal_total=proposal_total,
+        delivery_address=last_delivery_address,
         iface_message=iface_message,
         has_searched=has_searched
     )

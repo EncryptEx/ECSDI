@@ -32,6 +32,7 @@ __author__ = 'bejar'
 app = Flask(__name__)
 
 log_prefix = 'cercador'
+diraddress = ''
 
 
 def log(msg):
@@ -105,6 +106,62 @@ catalog = [
     }
 ]
 
+HARDCODED_RATINGS = {
+    'P1001': 4.3,
+    'P1002': 4.7,
+    'P1003': 4.1,
+    'P1004': 4.6,
+    'P1005': 4.4,
+    'P1006': 4.0,
+    'P1007': 4.2,
+    'P1008': 4.8
+}
+
+
+def fetch_ratings(products):
+    product_ids = [str(p.get('id', '')).strip() for p in products if str(p.get('id', '')).strip()]
+    ratings = {}
+
+    if product_ids and diraddress:
+        # TODO: Replace this hardcoded integration with real VALORADOR protocol once the agent exists.
+        try:
+            rating_agent = requests.get(diraddress + '/message', params={'message': 'SEARCH|VALORADOR'}).text
+            if rating_agent.startswith('OK: '):
+                rating_addr = rating_agent[4:]
+                payload = json.dumps({'product_ids': product_ids})
+                rating_resp = requests.get(
+                    rating_addr + '/message',
+                    params={'message': f'OBTENER_VALORACIONES|{payload}'}
+                ).text
+                if rating_resp.startswith('OK: '):
+                    parsed = json.loads(rating_resp[4:])
+                    if isinstance(parsed, dict):
+                        for pid, val in parsed.items():
+                            try:
+                                ratings[pid] = float(val)
+                            except (TypeError, ValueError):
+                                pass
+        except Exception as exc:
+            log(f'VALORADOR lookup failed, using local ratings: {exc}')
+
+    for pid in product_ids:
+        if pid not in ratings:
+            ratings[pid] = HARDCODED_RATINGS.get(pid, 3.5)
+
+    return ratings
+
+
+def enrich_with_ratings(products):
+    ratings = fetch_ratings(products)
+    enriched = []
+    for product in products:
+        pid = str(product.get('id', '')).strip()
+        rating = ratings.get(pid, 3.5)
+        pdata = dict(product)
+        pdata['rating'] = round(float(rating), 2)
+        enriched.append(pdata)
+    return enriched
+
 
 def matches_product(product, filters):
     name = str(filters.get('name', '')).strip().lower()
@@ -162,8 +219,9 @@ def message():
                 return 'ERROR: INVALID FILTERS'
 
             results = search_catalog(filters)
-            log(f'BUSCAR_PRODUCTOS filters={filters} -> {len(results)} resultados')
-            return 'OK: ' + json.dumps(results)
+            rated_results = enrich_with_ratings(results)
+            log(f'BUSCAR_PRODUCTOS filters={filters} -> {len(rated_results)} resultados')
+            return 'OK: ' + json.dumps(rated_results)
         except Exception as e:
             log(f'BUSCAR_PRODUCTOS failed: {e}')
             return 'ERROR: INVALID FILTERS'
