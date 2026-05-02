@@ -79,9 +79,9 @@ asignar una tarea a otros agentes
       --port = port de comunicacion (9030 por defecto)
       --dir = Direccion completa del servicio de directorio
 
- * Cercador.py
+ * Catalogador.py
 
-    Agente de busqueda de productos por filtros
+    Agente de busqueda/catalogacion de productos por filtros
 
     Parametros:
       --open = permite conexiones desde hosts remotos (no por defecto)
@@ -128,11 +128,11 @@ Pasos:
 
   $ python3 Logger.py --port 9100 --dir http://nombre.de.la.maquina:9000
 
- 3- Iniciar una o mas copias de Ventas y CentroLogistico, y una copia de Cercador y Valorador
+ 3- Iniciar una o mas copias de Ventas y CentroLogistico, y una copia de Catalogador y Valorador
 
   $ python3 Ventas.py --port 9020 --dir http://nombre.de.la.maquina:9000
   $ python3 CentroLogistico.py --port 9030 --dir http://nombre.de.la.maquina:9000
-  $ python3 Cercador.py --port 9040 --dir http://nombre.de.la.maquina:9000
+  $ python3 Catalogador.py --port 9040 --dir http://nombre.de.la.maquina:9000
   $ python3 Valorador.py --port 9050 --dir http://nombre.de.la.maquina:9000
 
  4- Inicial Client y abrir en el navegador las paginas /iface y /info
@@ -143,4 +143,3 @@ Pasos:
 
 Si se va a iniciar el sistema desde varias maquinas se han de ejecutar 
 los agentes con el parametro --open
-

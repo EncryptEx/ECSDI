@@ -317,26 +317,26 @@ def search_products(filters):
     global diraddress
 
     try:
-        search_resp = requests.get(diraddress + '/message', params={'message': 'SEARCH|CERCADOR'}).text
+        search_resp = requests.get(diraddress + '/message', params={'message': 'SEARCH|CATALOGADOR'}).text
     except ConnectionError:
         return [], 'No se puede conectar al servicio de directorio'
 
     if 'OK' not in search_resp:
-        return [], 'No hay agente CERCADOR registrado'
+        return [], 'No hay agente CATALOGADOR registrado'
 
-    cercador_addr = search_resp[4:]
+    catalogador_addr = search_resp[4:]
     mess = f'BUSCAR_PRODUCTOS|{json.dumps(filters)}'
 
     try:
-        resp = requests.get(cercador_addr + '/message', params={'message': mess}).text
+        resp = requests.get(catalogador_addr + '/message', params={'message': mess}).text
     except ConnectionError:
-        return [], 'No se puede conectar con CERCADOR'
+        return [], 'No se puede conectar con CATALOGADOR'
 
     if 'OK: ' in resp:
         try:
             return json.loads(resp[4:]), None
         except json.JSONDecodeError:
-            return [], 'Respuesta invalida de CERCADOR'
+            return [], 'Respuesta invalida de CATALOGADOR'
     return [], resp
 
 

@@ -1,10 +1,10 @@
 """
-.. module:: Cercador
+.. module:: Catalogador
 
-Cercador
+Catalogador
 *************
 
-:Description: Cercador
+:Description: Catalogador
 
  Agente de busqueda de productos por filtros.
 
@@ -31,7 +31,7 @@ __author__ = 'bejar'
 
 app = Flask(__name__)
 
-log_prefix = 'cercador'
+log_prefix = 'catalogador'
 diraddress = ''
 
 
@@ -269,7 +269,7 @@ if __name__ == '__main__':
     else:
         hostaddr = hostname = args.hostaddr if args.hostaddr else socket.gethostname()
 
-    log_prefix = f'cercador-{port}'
+    log_prefix = f'catalogador-{port}'
     log(f'DS Hostname = {hostaddr}')
 
     if args.dir is None:
@@ -279,7 +279,7 @@ if __name__ == '__main__':
 
     agentadd = f'http://{hostaddr}:{port}'
     agentid = hostaddr.split('.')[0] + '-' + str(port)
-    mess = f'REGISTER|{agentid},CERCADOR,{agentadd}'
+    mess = f'REGISTER|{agentid},CATALOGADOR,{agentadd}'
 
     done = False
     while not done:
