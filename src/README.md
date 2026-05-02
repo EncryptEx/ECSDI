@@ -61,7 +61,7 @@ asignar una tarea a otros agentes
 
  * Ventas.py
 
-    Solver de problemas ARITH (evalua una expresion aritmetica)
+    Agente de gestion de compra de productos
 
     Parametros:
       --open = permite conexiones desde hosts remotos (no por defecto)
@@ -71,12 +71,32 @@ asignar una tarea a otros agentes
 
  * CentroLogistico.py
 
-    Solver de problemas MFREQ (calcula las 10 letras mas frecuentes de un texto)
+    Agente de centro logistico que simula disponibilidad y compra de productos
 
     Parametros:
       --open = permite conexiones desde hosts remotos (no por defecto)
       --verbose = va escribiendo por terminal las peticiones que recibe el servidor http
       --port = port de comunicacion (9030 por defecto)
+      --dir = Direccion completa del servicio de directorio
+
+ * Cercador.py
+
+    Agente de busqueda de productos por filtros
+
+    Parametros:
+      --open = permite conexiones desde hosts remotos (no por defecto)
+      --verbose = va escribiendo por terminal las peticiones que recibe el servidor http
+      --port = port de comunicacion (9040 por defecto)
+      --dir = Direccion completa del servicio de directorio
+
+ * Valorador.py
+
+    Agente que devuelve valoraciones de productos
+
+    Parametros:
+      --open = permite conexiones desde hosts remotos (no por defecto)
+      --verbose = va escribiendo por terminal las peticiones que recibe el servidor http
+      --port = port de comunicacion (9050 por defecto)
       --dir = Direccion completa del servicio de directorio
 
  * Logger.py
@@ -108,12 +128,12 @@ Pasos:
 
   $ python3 Logger.py --port 9100 --dir http://nombre.de.la.maquina:9000
 
- 3- Iniciar una o mas copias de Solver, Ventas y CentroLogistico (los agentes
-    Solver tambien tienen una pagina /info que se puede monitorizar)
+ 3- Iniciar una o mas copias de Ventas y CentroLogistico, y una copia de Cercador y Valorador
 
-  $ python3 Solver.py --port 9010 --dir http://nombre.de.la.maquina:9000
   $ python3 Ventas.py --port 9020 --dir http://nombre.de.la.maquina:9000
   $ python3 CentroLogistico.py --port 9030 --dir http://nombre.de.la.maquina:9000
+  $ python3 Cercador.py --port 9040 --dir http://nombre.de.la.maquina:9000
+  $ python3 Valorador.py --port 9050 --dir http://nombre.de.la.maquina:9000
 
  4- Inicial Client y abrir en el navegador las paginas /iface y /info
 
@@ -123,5 +143,4 @@ Pasos:
 
 Si se va a iniciar el sistema desde varias maquinas se han de ejecutar 
 los agentes con el parametro --open
-
 

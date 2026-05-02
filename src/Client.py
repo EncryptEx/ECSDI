@@ -38,17 +38,32 @@ diraddress = ''
 log_prefix = 'client'
 search_groups = []
 assistant_proposal = []
-last_restrictions = [{
-    'name': '',
-    'brand': '',
-    'seller': '',
-    'tags': '',
-    'min_price': '',
-    'max_price': ''
-}]
+last_restrictions = [
+    {
+        'name': '',
+        'brand': '',
+        'seller': '',
+        'tags': '',
+        'min_price': '',
+        'max_price': '',
+        'min_rating': ''
+    }
+]
 last_delivery_address = ''
 iface_message = ''
 has_searched = False
+
+
+def empty_restriction_row():
+    return {
+        'name': '',
+        'brand': '',
+        'seller': '',
+        'tags': '',
+        'min_price': '',
+        'max_price': '',
+        'min_rating': ''
+    }
 
 
 def log(msg):
@@ -62,6 +77,7 @@ def parse_restrictions(form):
     tags_list = form.getlist('tags')
     min_prices = form.getlist('min_price')
     max_prices = form.getlist('max_price')
+    min_ratings = form.getlist('min_rating')
 
     max_rows = max(
         len(names),
@@ -70,6 +86,7 @@ def parse_restrictions(form):
         len(tags_list),
         len(min_prices),
         len(max_prices),
+        len(min_ratings),
         1
     )
 
@@ -83,7 +100,8 @@ def parse_restrictions(form):
             'seller': sellers[i].strip() if i < len(sellers) else '',
             'tags': tags_list[i].strip() if i < len(tags_list) else '',
             'min_price': min_prices[i].strip() if i < len(min_prices) else '',
-            'max_price': max_prices[i].strip() if i < len(max_prices) else ''
+            'max_price': max_prices[i].strip() if i < len(max_prices) else '',
+            'min_rating': min_ratings[i].strip() if i < len(min_ratings) else ''
         }
         rows.append(row)
 
@@ -96,8 +114,16 @@ def parse_restrictions(form):
         except ValueError:
             return [], rows, f'Fila {i + 1}: los precios minimo y maximo deben ser numericos'
 
+        try:
+            min_rating = float(row['min_rating']) if row['min_rating'] else None
+        except ValueError:
+            return [], rows, f'Fila {i + 1}: la puntuacion minima debe ser numerica'
+
         if min_price is not None and max_price is not None and min_price > max_price:
             return [], rows, f'Fila {i + 1}: el precio minimo no puede ser mayor que el maximo'
+
+        if min_rating is not None and (min_rating < 0.0 or min_rating > 5.0):
+            return [], rows, f'Fila {i + 1}: la puntuacion minima debe estar entre 0 y 5'
 
         tags = [t.strip() for t in row['tags'].split(',') if t.strip()]
 
@@ -110,7 +136,8 @@ def parse_restrictions(form):
                 'seller': row['seller'],
                 'tags': tags,
                 'min_price': min_price,
-                'max_price': max_price
+                'max_price': max_price,
+                'min_rating': min_rating
             }
         })
 
@@ -154,14 +181,7 @@ def message():
 
         if action == 'search':
             entries, rows, parse_error = parse_restrictions(request.form)
-            last_restrictions = rows if rows else [{
-                'name': '',
-                'brand': '',
-                'seller': '',
-                'tags': '',
-                'min_price': '',
-                'max_price': ''
-            }]
+            last_restrictions = rows if rows else [empty_restriction_row()]
 
             if parse_error:
                 iface_message = parse_error
@@ -241,6 +261,13 @@ def message():
                 iface_message = f'Pedido {order_id} enviado correctamente'
             else:
                 iface_message = f'Pedido {order_id} no enviado ({status})'
+
+            # Limpiamos la interfaz despues de solicitar el envio.
+            search_groups = []
+            assistant_proposal = []
+            last_restrictions = [empty_restriction_row()]
+            last_delivery_address = ''
+            has_searched = False
 
         return redirect(url_for('.iface'))
 

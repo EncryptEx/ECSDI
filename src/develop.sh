@@ -3,6 +3,7 @@
 # this is a dummy script that spins up:
 # - a directory service,
 # - 1 cercador agent,
+# - 1 valorador agent,
 # - 4 logistics centers,
 # - 1 venta agent, and
 # - 1 cliente agent.
@@ -75,6 +76,7 @@ start_agent "DirectoryService"  "$PYTHON" DirectoryService.py  --port 9000  --op
 start_agent "Logger"             "$PYTHON" Logger.py             --port 9100  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
 start_agent "Client"             "$PYTHON" Client.py             --port 9010  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
 start_agent "Cercador"           "$PYTHON" Cercador.py           --port 9040  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
+start_agent "Valorador"          "$PYTHON" Valorador.py          --port 9050  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
 start_agent "Ventas"             "$PYTHON" Ventas.py             --port 9020  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
 start_agent "CentroLogistico0"   "$PYTHON" CentroLogistico.py   --port 9030  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
 start_agent "CentroLogistico1"   "$PYTHON" CentroLogistico.py   --port 9031  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"

@@ -106,24 +106,17 @@ catalog = [
     }
 ]
 
-HARDCODED_RATINGS = {
-    'P1001': 4.3,
-    'P1002': 4.7,
-    'P1003': 4.1,
-    'P1004': 4.6,
-    'P1005': 4.4,
-    'P1006': 4.0,
-    'P1007': 4.2,
-    'P1008': 4.8
-}
+DEFAULT_RATING = 3.5
 
 
 def fetch_ratings(products):
     product_ids = [str(p.get('id', '')).strip() for p in products if str(p.get('id', '')).strip()]
     ratings = {}
 
+    if not product_ids:
+        return ratings
+
     if product_ids and diraddress:
-        # TODO: Replace this hardcoded integration with real VALORADOR protocol once the agent exists.
         try:
             rating_agent = requests.get(diraddress + '/message', params={'message': 'SEARCH|VALORADOR'}).text
             if rating_agent.startswith('OK: '):
@@ -141,12 +134,16 @@ def fetch_ratings(products):
                                 ratings[pid] = float(val)
                             except (TypeError, ValueError):
                                 pass
+            else:
+                log('VALORADOR not found in directory service; using default ratings')
         except Exception as exc:
-            log(f'VALORADOR lookup failed, using local ratings: {exc}')
+            log(f'VALORADOR lookup failed, using default ratings: {exc}')
+    else:
+        log('Directory service address missing; using default ratings')
 
     for pid in product_ids:
         if pid not in ratings:
-            ratings[pid] = HARDCODED_RATINGS.get(pid, 3.5)
+            ratings[pid] = DEFAULT_RATING
 
     return ratings
 
@@ -156,7 +153,7 @@ def enrich_with_ratings(products):
     enriched = []
     for product in products:
         pid = str(product.get('id', '')).strip()
-        rating = ratings.get(pid, 3.5)
+        rating = ratings.get(pid, DEFAULT_RATING)
         pdata = dict(product)
         pdata['rating'] = round(float(rating), 2)
         enriched.append(pdata)
@@ -198,6 +195,15 @@ def search_catalog(filters):
     return [p for p in catalog if matches_product(p, filters)]
 
 
+def apply_min_rating_filter(products, filters):
+    min_rating = filters.get('min_rating')
+    if min_rating is None or min_rating == '':
+        return products
+
+    threshold = float(min_rating)
+    return [p for p in products if float(p.get('rating', DEFAULT_RATING)) >= threshold]
+
+
 @app.route('/message')
 def message():
     mess = request.args['message']
@@ -220,8 +226,9 @@ def message():
 
             results = search_catalog(filters)
             rated_results = enrich_with_ratings(results)
-            log(f'BUSCAR_PRODUCTOS filters={filters} -> {len(rated_results)} resultados')
-            return 'OK: ' + json.dumps(rated_results)
+            filtered_results = apply_min_rating_filter(rated_results, filters)
+            log(f'BUSCAR_PRODUCTOS filters={filters} -> {len(filtered_results)} resultados')
+            return 'OK: ' + json.dumps(filtered_results)
         except Exception as e:
             log(f'BUSCAR_PRODUCTOS failed: {e}')
             return 'ERROR: INVALID FILTERS'
