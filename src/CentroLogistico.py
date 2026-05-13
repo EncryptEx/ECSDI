@@ -21,17 +21,32 @@ WordCounter
 from Util import gethostname
 import socket
 import argparse
-import json
 from FlaskServer import shutdown_server
-import requests
 from flask import Flask, request
 from requests import ConnectionError
-from multiprocessing import Process
-from collections import Counter
 import random
 import logging
 
 __author__ = 'bejar'
+
+from AgentCommunication import (
+    ACL,
+    ECSDI,
+    build_directory_register,
+    build_directory_unregister,
+    build_existence_response,
+    build_purchase_result,
+    build_status_response,
+    get_message_properties,
+    has_type,
+    message_conversation,
+    message_sender,
+    parse_graph,
+    products_from_line_request,
+    response_ok,
+    send_graph_message,
+    serialize_graph,
+)
 
 app = Flask(__name__)
 
@@ -51,33 +66,62 @@ def message():
 
     :return:
     """
-    mess = request.args['message']
-    log(f'Received: {mess}')
+    try:
+        graph = parse_graph(request.args['message'])
+        props = get_message_properties(graph)
+        sender = message_sender(props)
+        conversation_id = message_conversation(props)
+        content = props['content']
+    except Exception as exc:
+        log(f'Invalid RDF/FIPA message: {exc}')
+        response = build_status_response(log_prefix, 'unknown', ok=False, text='INVALID RDF/FIPA MESSAGE')
+        return serialize_graph(response)
 
-    if '|' not in mess:
-        log(f'Invalid message (no |): {mess}')
-        return 'ERROR: INVALID MESSAGE'
-    else:
-        # Sintaxis de los mensajes "TIPO|PARAMETROS"
-        messtype, messparam = mess.split('|')
+    if props['performative'] != ACL.request:
+        response = build_status_response(
+            log_prefix,
+            sender,
+            ok=False,
+            text='INVALID PERFORMATIVE',
+            conversation_id=conversation_id
+        )
+        return serialize_graph(response)
 
-        if messtype not in ['EXIST?', 'BUY']:
-            log(f'Unknown request: {messtype}')
-            return 'ERROR: INVALID REQUEST'
+    if has_type(graph, content, ECSDI.PeticionExisteLineaComanda):
+        requested = products_from_line_request(graph, content)
+        log(f'PeticionExisteLineaComanda query for: {requested}')
+        availability = {product: random.choice([True, False, True]) for product in requested}
+        log(f'PeticionExisteLineaComanda response: {availability}')
+        response = build_existence_response(
+            availability,
+            requested,
+            sender=log_prefix,
+            receiver=sender,
+            conversation_id=conversation_id
+        )
+        return serialize_graph(response)
 
-        if messtype == 'EXIST?':
-            # Dado un array de {producto: qty}, responder el mismo array con un bool por producto
-            requested = json.loads(messparam)
-            log(f'EXIST? query for: {requested}')
-            response = {product: random.choice([True, False, True]) for product in requested}
-            log(f'EXIST? response: {response}')
-            return json.dumps(response)
+    if has_type(graph, content, ECSDI.PeticionGuardarCompra):
+        products = products_from_line_request(graph, content)
+        log(f'PeticionGuardarCompra: {products}')
+        # TODO: persist inventory changes
+        response = build_purchase_result(
+            True,
+            sender=log_prefix,
+            receiver=sender,
+            conversation_id=conversation_id
+        )
+        return serialize_graph(response)
 
-        elif messtype == 'BUY':
-            products = json.loads(messparam)
-            log(f'BUY: {products}')
-            # TODO: persist inventory changes
-            return 'OK'
+    log('Unknown request')
+    response = build_status_response(
+        log_prefix,
+        sender,
+        ok=False,
+        text='INVALID REQUEST',
+        conversation_id=conversation_id
+    )
+    return serialize_graph(response)
             
 
 @app.route("/stop")
@@ -88,20 +132,6 @@ def stop():
     log('Stopping server')
     shutdown_server()
     return "Parando Servidor"
-
-
-def solver(saddress, probid, prob):
-    """
-    Hace la resolucion de un problema
-
-    :param param:
-    :return:
-    """
-    try:
-        res = ''.join([x for x, _ in Counter(prob).most_common(10)])
-    except Exception:
-        res = 'ERROR: NON ASCII CHARACTERS'
-    requests.get(saddress + '/message', params={'message': f'SOLVED|{probid},{res}'})
 
 
 if __name__ == '__main__':
@@ -143,23 +173,23 @@ if __name__ == '__main__':
     # Registramos el solver aritmetico en el servicio de directorio
     solveradd = f'http://{hostaddr}:{port}'
     solverid = hostaddr.split('.')[0] + '-' + str(port)
-    mess = f'REGISTER|{solverid},CENTRO_LOGISTICO,{solveradd}'
+    mess = build_directory_register(solverid, 'CENTRO_LOGISTICO', solveradd, sender=solverid)
 
     done = False
     while not done:
         try:
-            resp = requests.get(diraddress + '/message', params={'message': mess}).text
+            resp = send_graph_message(diraddress, mess)
             done = True
         except ConnectionError:
             pass
 
-    if 'OK' in resp:
+    if response_ok(resp):
         log(f'{solverid} successfully registered')
         # Ponemos en marcha el servidor Flask
         app.run(host=hostname, port=port, debug=False, use_reloader=False)
 
         log(f'{solverid} unregistering')
-        mess = f'UNREGISTER|{solverid}'
-        requests.get(diraddress + '/message', params={'message': mess})
+        mess = build_directory_unregister(solverid, sender=solverid)
+        send_graph_message(diraddress, mess)
     else:
         log('Unable to register')

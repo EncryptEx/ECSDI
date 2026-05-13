@@ -19,15 +19,24 @@ Client
 
 from Util import gethostname
 import argparse
-import json
 from FlaskServer import shutdown_server
-import requests
 from requests import ConnectionError
 from flask import Flask, request, render_template, url_for, redirect
 import logging
 import socket
 
 __author__ = 'bejar'
+
+from AgentCommunication import (
+    build_directory_search,
+    build_purchase_request,
+    build_search_request,
+    directory_addresses_from_response,
+    products_from_search_response,
+    response_ok,
+    response_text,
+    send_graph_message,
+)
 
 app = Flask(__name__)
 
@@ -317,27 +326,35 @@ def search_products(filters):
     global diraddress
 
     try:
-        search_resp = requests.get(diraddress + '/message', params={'message': 'SEARCH|CATALOGADOR'}).text
+        search_resp = send_graph_message(
+            diraddress,
+            build_directory_search('CATALOGADOR', sender=clientid or log_prefix)
+        )
     except ConnectionError:
         return [], 'No se puede conectar al servicio de directorio'
+    except Exception:
+        return [], 'Respuesta invalida del servicio de directorio'
 
-    if 'OK' not in search_resp:
+    if not response_ok(search_resp):
         return [], 'No hay agente CATALOGADOR registrado'
 
-    catalogador_addr = search_resp[4:]
-    mess = f'BUSCAR_PRODUCTOS|{json.dumps(filters)}'
+    addresses = directory_addresses_from_response(search_resp)
+    if not addresses:
+        return [], 'No hay agente CATALOGADOR registrado'
+
+    catalogador_addr = addresses[0]
+    mess = build_search_request(filters, sender=clientid or log_prefix, receiver='CATALOGADOR')
 
     try:
-        resp = requests.get(catalogador_addr + '/message', params={'message': mess}).text
+        resp = send_graph_message(catalogador_addr, mess)
     except ConnectionError:
         return [], 'No se puede conectar con CATALOGADOR'
+    except Exception:
+        return [], 'Respuesta invalida de CATALOGADOR'
 
-    if 'OK: ' in resp:
-        try:
-            return json.loads(resp[4:]), None
-        except json.JSONDecodeError:
-            return [], 'Respuesta invalida de CATALOGADOR'
-    return [], resp
+    if response_ok(resp):
+        return products_from_search_response(resp), None
+    return [], response_text(resp, 'Respuesta de error de CATALOGADOR')
 
 
 def send_message(products, delivery_address):
@@ -346,7 +363,7 @@ def send_message(products, delivery_address):
 
     mensaje:
 
-    PRODUCTOS_A_COMPRAR|{"products": {"product": quantity, ...}, "delivery_address": "..."}
+    PeticionCompra enviada como grafo RDF dentro de un sobre ACL FIPA.
 
     :param products: diccionario de productos a comprar
     :param delivery_address: direccion de entrega del cliente
@@ -367,38 +384,51 @@ def send_message(products, delivery_address):
     # Busca el agente de ventas en el servicio de directorio
     log('Searching for VENTAS in directory service')
     try:
-        ventasaddr = requests.get(diraddress + '/message', params={'message': 'SEARCH|VENTAS'}).text
+        ventas_response = send_graph_message(
+            diraddress,
+            build_directory_search('VENTAS', sender=clientid or log_prefix)
+        )
     except ConnectionError:
         problems[probid] = [products, 'FAILED DS CONNECTION']
         log(f'{probid} connection error to Directory Service')
         return probid, 'FAILED DS CONNECTION'
+    except Exception:
+        problems[probid] = [products, 'FAILED DS RESPONSE']
+        log(f'{probid} invalid response from Directory Service')
+        return probid, 'FAILED DS RESPONSE'
 
     # Agente de ventas encontrado
-    if 'OK' in ventasaddr:
-        ventasaddr = ventasaddr[4:]
+    if response_ok(ventas_response):
+        addresses = directory_addresses_from_response(ventas_response)
+        if not addresses:
+            problems[probid] = [products, 'FAILED DS']
+            log(f'{probid} VENTAS not found in directory service')
+            return probid, 'FAILED DS'
+
+        ventasaddr = addresses[0]
         log(f'Found VENTAS at {ventasaddr}')
 
         problems[probid] = [products, 'PENDING']
-        payload = {
-            'products': products,
-            'delivery_address': delivery_address
-        }
-        mess = f'PRODUCTOS_A_COMPRAR|{json.dumps(payload)}'
-        log(f'Sending to VENTAS: {mess}')
+        mess = build_purchase_request(products, delivery_address, sender=clientid or log_prefix, receiver='VENTAS')
+        log(f'Sending RDF/FIPA PeticionCompra to VENTAS')
         try:
-            resp = requests.get(ventasaddr + '/message', params={'message': mess}).text
-            if 'ERROR' not in resp:
+            resp = send_graph_message(ventasaddr, mess)
+            if response_ok(resp):
                 problems[probid][1] = 'SENT'
                 log(f'{probid} sent successfully')
                 return probid, 'SENT'
             else:
                 problems[probid][1] = 'FAILED VENTAS'
-                log(f'{probid} VENTAS returned error: {resp}')
+                log(f'{probid} VENTAS returned error: {response_text(resp, "ERROR")}')
                 return probid, 'FAILED VENTAS'
         except ConnectionError:
             problems[probid][1] = 'FAILED CONNECTION'
             log(f'{probid} connection error to VENTAS at {ventasaddr}')
             return probid, 'FAILED CONNECTION'
+        except Exception:
+            problems[probid][1] = 'FAILED VENTAS RESPONSE'
+            log(f'{probid} invalid response from VENTAS')
+            return probid, 'FAILED VENTAS RESPONSE'
     # Agente de ventas no encontrado
     else:
         problems[probid] = [products, 'FAILED DS']

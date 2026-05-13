@@ -20,11 +20,29 @@ StressTest
 """
 
 import argparse
-import requests
 import random, string
 import socket
+from rdflib import Literal
 
 __author__ = 'bejar'
+
+from AgentCommunication import (
+    ECSDI,
+    build_directory_search,
+    build_message_with_content,
+    directory_addresses_from_response,
+    response_ok,
+    send_graph_message,
+)
+
+
+def build_solve_request(problem_type, clientaddress, probid, payload, sender):
+    graph, content = build_message_with_content(ECSDI.PeticionResolverProblema, sender=sender, receiver='SOLVER')
+    graph.add((content, ECSDI.tipoProblema, Literal(problem_type)))
+    graph.add((content, ECSDI.direccionCliente, Literal(clientaddress)))
+    graph.add((content, ECSDI.idProblema, Literal(probid)))
+    graph.add((content, ECSDI.contenidoProblema, Literal(payload)))
+    return graph
 
 if __name__ == '__main__':
 
@@ -45,14 +63,20 @@ if __name__ == '__main__':
         print(f'TEST {i}')
         probcounter += 1
 
-        solveradd = requests.get(diraddress + '/message', params={'message': 'SEARCH|SOLVER'}).text
+        solver_response = send_graph_message(
+            diraddress,
+            build_directory_search('SOLVER', sender=testid)
+        )
 
-        if 'OK' in solveradd:
-            # Le quitamos el OK de la respuesta
-            solveradd = solveradd[4:]
+        if response_ok(solver_response):
+            addresses = directory_addresses_from_response(solver_response)
+            if not addresses:
+                continue
+            solveradd = addresses[0]
             probid = f'TESTARITH-{testid}-{probcounter:03}'
-            mess = f'SOLVE|ARITH,{clientaddress},{probid},{i}+{i}'
-            resp = requests.get(solveradd + '/message', params={'message': mess}, timeout=5).text
+            mess = build_solve_request('ARITH', clientaddress, probid, f'{i}+{i}', testid)
+            resp = send_graph_message(solveradd, mess, timeout=5)
             probid = f'TESTMFREQ-{testid}-{probcounter}'
-            mess = f"SOLVE|MFREQ,{clientaddress},{probid},{''.join(random.choice(string.ascii_lowercase) for i in range(500))}"
-            resp = requests.get(solveradd + '/message', params={'message': mess}, timeout=5).text
+            payload = ''.join(random.choice(string.ascii_lowercase) for i in range(500))
+            mess = build_solve_request('MFREQ', clientaddress, probid, payload, testid)
+            resp = send_graph_message(solveradd, mess, timeout=5)

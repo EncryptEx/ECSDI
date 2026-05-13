@@ -17,17 +17,33 @@ Valorador
 """
 
 import argparse
-import json
 import logging
 import socket
 
-import requests
 from FlaskServer import shutdown_server
 from Util import gethostname
 from flask import Flask, request
 from requests import ConnectionError
 
 __author__ = 'bejar'
+
+from AgentCommunication import (
+    ACL,
+    ECSDI,
+    build_directory_register,
+    build_directory_unregister,
+    build_ratings_response,
+    build_status_response,
+    get_message_properties,
+    has_type,
+    message_conversation,
+    message_sender,
+    parse_graph,
+    product_ids_from_ratings_request,
+    response_ok,
+    send_graph_message,
+    serialize_graph,
+)
 
 app = Flask(__name__)
 
@@ -50,51 +66,65 @@ RATINGS = {
 }
 
 
-def parse_product_ids(payload):
-    if isinstance(payload, dict):
-        if 'product_ids' in payload and isinstance(payload['product_ids'], list):
-            return [str(pid).strip() for pid in payload['product_ids'] if str(pid).strip()]
-        if 'product_id' in payload and str(payload['product_id']).strip():
-            return [str(payload['product_id']).strip()]
-        return []
-
-    if isinstance(payload, list):
-        return [str(pid).strip() for pid in payload if str(pid).strip()]
-
-    return []
-
-
 def get_ratings(product_ids):
     return {pid: float(RATINGS.get(pid, 3.5)) for pid in product_ids}
 
 
 @app.route('/message')
 def message():
-    mess = request.args['message']
+    try:
+        graph = parse_graph(request.args['message'])
+        props = get_message_properties(graph)
+        sender = message_sender(props)
+        conversation_id = message_conversation(props)
+        content = props['content']
+    except Exception as exc:
+        log(f'Invalid RDF/FIPA message: {exc}')
+        response = build_status_response(log_prefix, 'unknown', ok=False, text='INVALID RDF/FIPA MESSAGE')
+        return serialize_graph(response)
 
-    if '|' not in mess:
-        log(f'Invalid message (no |): {mess}')
-        return 'ERROR: INVALID MESSAGE'
+    if props['performative'] != ACL.request or not has_type(graph, content, ECSDI.PeticionValoracionesProducto):
+        log('Unknown request type')
+        response = build_status_response(
+            log_prefix,
+            sender,
+            ok=False,
+            text='INVALID REQUEST',
+            conversation_id=conversation_id
+        )
+        return serialize_graph(response)
 
-    messtype, messparam = mess.split('|', 1)
+    try:
+        product_ids = product_ids_from_ratings_request(graph, content)
+        if not product_ids:
+            response = build_status_response(
+                log_prefix,
+                sender,
+                ok=False,
+                text='INVALID PRODUCT IDS',
+                conversation_id=conversation_id
+            )
+            return serialize_graph(response)
 
-    if messtype not in ['OBTENER_VALORACIONES']:
-        log(f'Unknown request type: {messtype}')
-        return 'ERROR: INVALID REQUEST'
-
-    if messtype == 'OBTENER_VALORACIONES':
-        try:
-            payload = json.loads(messparam)
-            product_ids = parse_product_ids(payload)
-            if not product_ids:
-                return 'ERROR: INVALID PRODUCT IDS'
-
-            ratings = get_ratings(product_ids)
-            log(f'OBTENER_VALORACIONES product_ids={product_ids} -> {len(ratings)} ratings')
-            return 'OK: ' + json.dumps(ratings)
-        except Exception as exc:
-            log(f'OBTENER_VALORACIONES failed: {exc}')
-            return 'ERROR: INVALID PAYLOAD'
+        ratings = get_ratings(product_ids)
+        log(f'PeticionValoracionesProducto product_ids={product_ids} -> {len(ratings)} ratings')
+        response = build_ratings_response(
+            ratings,
+            sender=log_prefix,
+            receiver=sender,
+            conversation_id=conversation_id
+        )
+        return serialize_graph(response)
+    except Exception as exc:
+        log(f'PeticionValoracionesProducto failed: {exc}')
+        response = build_status_response(
+            log_prefix,
+            sender,
+            ok=False,
+            text='INVALID PAYLOAD',
+            conversation_id=conversation_id
+        )
+        return serialize_graph(response)
 
 
 @app.route('/stop')
@@ -142,22 +172,22 @@ if __name__ == '__main__':
 
     agentadd = f'http://{hostaddr}:{port}'
     agentid = hostaddr.split('.')[0] + '-' + str(port)
-    mess = f'REGISTER|{agentid},VALORADOR,{agentadd}'
+    mess = build_directory_register(agentid, 'VALORADOR', agentadd, sender=agentid)
 
     done = False
     while not done:
         try:
-            resp = requests.get(diraddress + '/message', params={'message': mess}).text
+            resp = send_graph_message(diraddress, mess)
             done = True
         except ConnectionError:
             pass
 
-    if 'OK' in resp:
+    if response_ok(resp):
         log(f'{agentid} successfully registered')
         app.run(host=hostname, port=port, debug=False, use_reloader=False)
 
         log(f'{agentid} unregistering')
-        mess = f'UNREGISTER|{agentid}'
-        requests.get(diraddress + '/message', params={'message': mess})
+        mess = build_directory_unregister(agentid, sender=agentid)
+        send_graph_message(diraddress, mess)
     else:
         log('Unable to register')

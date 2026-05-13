@@ -17,17 +17,37 @@ Catalogador
 """
 
 import argparse
-import json
 import logging
 import socket
 
-import requests
 from FlaskServer import shutdown_server
 from Util import gethostname
 from flask import Flask, request
 from requests import ConnectionError
 
 __author__ = 'bejar'
+
+from AgentCommunication import (
+    ACL,
+    ECSDI,
+    build_directory_register,
+    build_directory_search,
+    build_directory_unregister,
+    build_ratings_request,
+    build_search_response,
+    build_status_response,
+    directory_addresses_from_response,
+    filters_from_search_request,
+    get_message_properties,
+    has_type,
+    message_conversation,
+    message_sender,
+    parse_graph,
+    ratings_from_response,
+    response_ok,
+    send_graph_message,
+    serialize_graph,
+)
 
 app = Flask(__name__)
 
@@ -118,22 +138,20 @@ def fetch_ratings(products):
 
     if product_ids and diraddress:
         try:
-            rating_agent = requests.get(diraddress + '/message', params={'message': 'SEARCH|VALORADOR'}).text
-            if rating_agent.startswith('OK: '):
-                rating_addr = rating_agent[4:]
-                payload = json.dumps({'product_ids': product_ids})
-                rating_resp = requests.get(
-                    rating_addr + '/message',
-                    params={'message': f'OBTENER_VALORACIONES|{payload}'}
-                ).text
-                if rating_resp.startswith('OK: '):
-                    parsed = json.loads(rating_resp[4:])
-                    if isinstance(parsed, dict):
-                        for pid, val in parsed.items():
-                            try:
-                                ratings[pid] = float(val)
-                            except (TypeError, ValueError):
-                                pass
+            rating_agent = send_graph_message(
+                diraddress,
+                build_directory_search('VALORADOR', sender=log_prefix)
+            )
+            if response_ok(rating_agent):
+                addresses = directory_addresses_from_response(rating_agent)
+                if addresses:
+                    rating_addr = addresses[0]
+                    rating_resp = send_graph_message(
+                        rating_addr,
+                        build_ratings_request(product_ids, sender=log_prefix, receiver='VALORADOR')
+                    )
+                    if response_ok(rating_resp):
+                        ratings.update(ratings_from_response(rating_resp))
             else:
                 log('VALORADOR not found in directory service; using default ratings')
         except Exception as exc:
@@ -206,32 +224,51 @@ def apply_min_rating_filter(products, filters):
 
 @app.route('/message')
 def message():
-    mess = request.args['message']
+    try:
+        graph = parse_graph(request.args['message'])
+        props = get_message_properties(graph)
+        sender = message_sender(props)
+        conversation_id = message_conversation(props)
+        content = props['content']
+    except Exception as exc:
+        log(f'Invalid RDF/FIPA message: {exc}')
+        response = build_status_response(log_prefix, 'unknown', ok=False, text='INVALID RDF/FIPA MESSAGE')
+        return serialize_graph(response)
 
-    if '|' not in mess:
-        log(f'Invalid message (no |): {mess}')
-        return 'ERROR: INVALID MESSAGE'
+    if props['performative'] != ACL.request or not has_type(graph, content, ECSDI.PeticionCerca):
+        log('Unknown request type')
+        response = build_status_response(
+            log_prefix,
+            sender,
+            ok=False,
+            text='INVALID REQUEST',
+            conversation_id=conversation_id
+        )
+        return serialize_graph(response)
 
-    messtype, messparam = mess.split('|', 1)
-
-    if messtype not in ['BUSCAR_PRODUCTOS']:
-        log(f'Unknown request type: {messtype}')
-        return 'ERROR: INVALID REQUEST'
-
-    if messtype == 'BUSCAR_PRODUCTOS':
-        try:
-            filters = json.loads(messparam)
-            if not isinstance(filters, dict):
-                return 'ERROR: INVALID FILTERS'
-
-            results = search_catalog(filters)
-            rated_results = enrich_with_ratings(results)
-            filtered_results = apply_min_rating_filter(rated_results, filters)
-            log(f'BUSCAR_PRODUCTOS filters={filters} -> {len(filtered_results)} resultados')
-            return 'OK: ' + json.dumps(filtered_results)
-        except Exception as e:
-            log(f'BUSCAR_PRODUCTOS failed: {e}')
-            return 'ERROR: INVALID FILTERS'
+    try:
+        filters = filters_from_search_request(graph, content)
+        results = search_catalog(filters)
+        rated_results = enrich_with_ratings(results)
+        filtered_results = apply_min_rating_filter(rated_results, filters)
+        log(f'PeticionCerca filters={filters} -> {len(filtered_results)} resultados')
+        response = build_search_response(
+            filtered_results,
+            sender=log_prefix,
+            receiver=sender,
+            conversation_id=conversation_id
+        )
+        return serialize_graph(response)
+    except Exception as e:
+        log(f'PeticionCerca failed: {e}')
+        response = build_status_response(
+            log_prefix,
+            sender,
+            ok=False,
+            text='INVALID FILTERS',
+            conversation_id=conversation_id
+        )
+        return serialize_graph(response)
 
 
 @app.route('/stop')
@@ -279,22 +316,22 @@ if __name__ == '__main__':
 
     agentadd = f'http://{hostaddr}:{port}'
     agentid = hostaddr.split('.')[0] + '-' + str(port)
-    mess = f'REGISTER|{agentid},CATALOGADOR,{agentadd}'
+    mess = build_directory_register(agentid, 'CATALOGADOR', agentadd, sender=agentid)
 
     done = False
     while not done:
         try:
-            resp = requests.get(diraddress + '/message', params={'message': mess}).text
+            resp = send_graph_message(diraddress, mess)
             done = True
         except ConnectionError:
             pass
 
-    if 'OK' in resp:
+    if response_ok(resp):
         log(f'{agentid} successfully registered')
         app.run(host=hostname, port=port, debug=False, use_reloader=False)
 
         log(f'{agentid} unregistering')
-        mess = f'UNREGISTER|{agentid}'
-        requests.get(diraddress + '/message', params={'message': mess})
+        mess = build_directory_unregister(agentid, sender=agentid)
+        send_graph_message(diraddress, mess)
     else:
         log('Unable to register')

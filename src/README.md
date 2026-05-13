@@ -1,6 +1,6 @@
 # ECSDI – Multi-Agent E-Commerce System
 
-A multi-agent system built with Flask where each agent runs as an independent HTTP service. Agents communicate through a central **DirectoryService** that handles registration, discovery, and round-robin load balancing.
+A multi-agent system built with Flask where each agent runs as an independent HTTP service. Agents use **FIPA ACL performatives** with RDF graph content for communication. The central **DirectoryService** handles registration, discovery, and round-robin load balancing through the same RDF/FIPA message format.
 
 ## Architecture
 

@@ -20,7 +20,6 @@ DirectoryService
 from Util import gethostname
 import socket
 import argparse
-import json
 from FlaskServer import shutdown_server
 
 from flask import Flask, request, render_template
@@ -29,8 +28,26 @@ import time
 from random import randint
 from uuid import uuid4
 import logging
+from rdflib import RDF
 
 __author__ = 'bejar'
+
+from AgentCommunication import (
+    ACL,
+    DIRECTORY_AGENT,
+    DSO,
+    build_directory_search_response,
+    build_status_response,
+    directory_register_values,
+    directory_search_type,
+    directory_unregister_id,
+    get_message_properties,
+    has_type,
+    message_conversation,
+    message_sender,
+    parse_graph,
+    serialize_graph,
+)
 
 def obscure(dir):
     """
@@ -65,71 +82,153 @@ def message():
     global directory
     global loadbalance
 
-    mess = request.args['message']
+    try:
+        graph = parse_graph(request.args['message'])
+        props = get_message_properties(graph)
+        sender = message_sender(props)
+        conversation_id = message_conversation(props)
+        content = props['content']
+    except Exception as exc:
+        log(f'Invalid RDF/FIPA message: {exc}')
+        response = build_status_response(
+            DIRECTORY_AGENT,
+            'unknown',
+            ok=False,
+            text='INVALID RDF/FIPA MESSAGE'
+        )
+        return serialize_graph(response)
 
+    if props['performative'] != ACL.request:
+        response = build_status_response(
+            DIRECTORY_AGENT,
+            sender,
+            ok=False,
+            text='DIRECTORY ONLY ACCEPTS REQUEST PERFORMATIVES',
+            conversation_id=conversation_id
+        )
+        return serialize_graph(response)
 
-    if '|' not in mess:
-        return 'ERROR: INVALID MESSAGE'
-    else:
-        # Sintaxis de los mensajes "TIPO|PARAMETROS"
-        messtype, messparam = mess.split('|')
-
-        if messtype not in ['REGISTER', 'SEARCH', 'SEARCHALL', 'UNREGISTER']:
-            return 'ERROR: NO SUCH ACTION'
+    if has_type(graph, content, DSO.Register):
+        serid, sertype, seraddress = directory_register_values(graph, content)
+        if serid and sertype and seraddress:
+            if serid not in directory:
+                directory[serid] = (sertype, seraddress, time.strftime('%Y-%m-%d %H:%M'))
+                loadbalance[serid] = 0
+                log(f'REGISTER  {serid} type={sertype} @ {seraddress}')
+                response = build_status_response(
+                    DIRECTORY_AGENT,
+                    sender,
+                    ok=True,
+                    text='REGISTER SUCCESS',
+                    conversation_id=conversation_id
+                )
+            else:
+                log(f'REGISTER FAILED: {serid} already registered')
+                response = build_status_response(
+                    DIRECTORY_AGENT,
+                    sender,
+                    ok=False,
+                    text='ID ALREADY REGISTERED',
+                    conversation_id=conversation_id
+                )
         else:
-            # parametros mensaje REGISTER = "ID,TIPO,ADDRESS"
-            if messtype == 'REGISTER':
-                param = messparam.split(',')
-                if len(param) == 3:
-                    serid, sertype, seraddress = param
-                    if serid not in directory:
-                        directory[serid] = (sertype, seraddress, time.strftime('%Y-%m-%d %H:%M'))
-                        loadbalance[serid] = 0
-                        log(f'REGISTER  {serid} type={sertype} @ {seraddress}')
-                        return 'OK: REGISTER SUCCESS'
-                    else:
-                        log(f'REGISTER FAILED: {serid} already registered')
-                        return 'ERROR: ID ALREADY REGISTERED'
-                else:
-                    return 'ERROR: REGISTER INVALID PARAMETERS'
-            # parametros del mensaje SEARCH = 'TIPO'
-            elif messtype == 'SEARCH':
-                sertype = messparam
-                found = [(id, directory[id][1]) for id in directory if directory[id][0] == sertype]
-                if len(found) != 0:
-                    if schedule == 'equaljobs':
-                        # balanceo por igual numero de jobs
-                        bal = [loadbalance[id] for id, _ in found]
-                        pos = np.argmin(bal)
-                    elif schedule == 'random':
-                        pos = randint(0, len(found) - 1)
-                    else:
-                        pos = 0
-                    loadbalance[found[pos][0]] += 1
-                    log(f'SEARCH    {sertype} -> {found[pos][0]} @ {found[pos][1]}')
-                    return 'OK: ' + found[pos][1]
-                else:
-                    log(f'SEARCH    {sertype} -> NOT FOUND')
-                    return 'ERROR: NOT FOUND'
-            # parametros del mensaje SEARCHALL = 'TIPO' -> devuelve todas las direcciones del tipo
-            elif messtype == 'SEARCHALL':
-                sertype = messparam
-                found = [directory[id][1] for id in directory if directory[id][0] == sertype]
-                log(f'SEARCHALL {sertype} -> {len(found)} found')
-                if found:
-                    return 'OK: ' + json.dumps(found)
-                else:
-                    return 'ERROR: NOT FOUND'
-            # parametros del mensaje UNREGISTER = 'ID'
-            elif messtype == 'UNREGISTER':
-                serid = messparam
-                if serid in directory:
-                    log(f'UNREGISTER {serid}')
-                    del directory[serid]
-                    return 'OK: UNREGISTER SUCCESS'
-                else:
-                    log(f'UNREGISTER FAILED: {serid} not registered')
-                    return 'ERROR: NOT REGISTERED'
+            response = build_status_response(
+                DIRECTORY_AGENT,
+                sender,
+                ok=False,
+                text='REGISTER INVALID PARAMETERS',
+                conversation_id=conversation_id
+            )
+        return serialize_graph(response)
+
+    if has_type(graph, content, DSO.Search):
+        sertype = directory_search_type(graph, content)
+        found = [(id, directory[id][1]) for id in directory if directory[id][0] == sertype]
+        if len(found) != 0:
+            if schedule == 'equaljobs':
+                # balanceo por igual numero de jobs
+                bal = [loadbalance[id] for id, _ in found]
+                pos = np.argmin(bal)
+            elif schedule == 'random':
+                pos = randint(0, len(found) - 1)
+            else:
+                pos = 0
+            loadbalance[found[pos][0]] += 1
+            log(f'SEARCH    {sertype} -> {found[pos][0]} @ {found[pos][1]}')
+            response = build_directory_search_response(
+                [found[pos][1]],
+                DIRECTORY_AGENT,
+                sender,
+                agent_type=sertype,
+                conversation_id=conversation_id
+            )
+        else:
+            log(f'SEARCH    {sertype} -> NOT FOUND')
+            response = build_status_response(
+                DIRECTORY_AGENT,
+                sender,
+                ok=False,
+                text='NOT FOUND',
+                conversation_id=conversation_id
+            )
+        return serialize_graph(response)
+
+    if has_type(graph, content, DSO.SearchAll):
+        sertype = directory_search_type(graph, content)
+        found = [directory[id][1] for id in directory if directory[id][0] == sertype]
+        log(f'SEARCHALL {sertype} -> {len(found)} found')
+        if found:
+            response = build_directory_search_response(
+                found,
+                DIRECTORY_AGENT,
+                sender,
+                agent_type=sertype,
+                conversation_id=conversation_id
+            )
+        else:
+            response = build_status_response(
+                DIRECTORY_AGENT,
+                sender,
+                ok=False,
+                text='NOT FOUND',
+                conversation_id=conversation_id
+            )
+        return serialize_graph(response)
+
+    if has_type(graph, content, DSO.Unregister):
+        serid = directory_unregister_id(graph, content)
+        if serid in directory:
+            log(f'UNREGISTER {serid}')
+            del directory[serid]
+            loadbalance.pop(serid, None)
+            response = build_status_response(
+                DIRECTORY_AGENT,
+                sender,
+                ok=True,
+                text='UNREGISTER SUCCESS',
+                conversation_id=conversation_id
+            )
+        else:
+            log(f'UNREGISTER FAILED: {serid} not registered')
+            response = build_status_response(
+                DIRECTORY_AGENT,
+                sender,
+                ok=False,
+                text='NOT REGISTERED',
+                conversation_id=conversation_id
+            )
+        return serialize_graph(response)
+
+    unknown_types = [str(t).split('#')[-1] for t in graph.objects(content, RDF.type)]
+    log(f'Unknown directory action: {unknown_types}')
+    response = build_status_response(
+        DIRECTORY_AGENT,
+        sender,
+        ok=False,
+        text='NO SUCH ACTION',
+        conversation_id=conversation_id
+    )
+    return serialize_graph(response)
 
 
 @app.route('/info')

@@ -22,7 +22,6 @@ from Util import gethostname
 import socket
 import argparse
 from FlaskServer import shutdown_server
-import requests
 from requests import ConnectionError
 from flask import Flask, request, render_template
 import matplotlib
@@ -33,9 +32,22 @@ import base64
 import numpy as np
 import time
 import logging
-from uuid import uuid4
+from rdflib import RDF
 
 __author__ = 'bejar'
+
+from AgentCommunication import (
+    build_directory_register,
+    build_directory_unregister,
+    build_status_response,
+    get_message_properties,
+    message_conversation,
+    message_sender,
+    parse_graph,
+    response_ok,
+    send_graph_message,
+    serialize_graph,
+)
 
 app = Flask(__name__)
 
@@ -51,18 +63,25 @@ def message():
     """
     global workers_logging
 
-    mess = request.args['message']
+    try:
+        graph = parse_graph(request.args['message'])
+        props = get_message_properties(graph)
+        sender = message_sender(props)
+        conversation_id = message_conversation(props)
+        content = props['content']
+        content_types = [str(t).split('#')[-1] for t in graph.objects(content, RDF.type)]
+        prob = content_types[0] if content_types else 'Comunicacion'
+    except Exception:
+        response = build_status_response('LOGGER', 'unknown', ok=False, text='INVALID RDF/FIPA MESSAGE')
+        return serialize_graph(response)
 
-    if ',' in mess and len(mess.split(',')) == 2:
-        id, prob = mess.split(',')
-        if id in workers_logging:
-            if prob in workers_logging[id]:
-                workers_logging[id][prob] += 1
-            else:
-                workers_logging[id][prob] = 1
-        else:
-            workers_logging[id] = {prob: 1}
-    return 'OK'
+    if sender in workers_logging:
+        workers_logging[sender][prob] = workers_logging[sender].get(prob, 0) + 1
+    else:
+        workers_logging[sender] = {prob: 1}
+
+    response = build_status_response('LOGGER', sender, ok=True, text='LOGGED', conversation_id=conversation_id)
+    return serialize_graph(response)
 
 
 @app.route('/info')
@@ -159,24 +178,24 @@ if __name__ == '__main__':
     # Registramos el solver aritmetico en el servicio de directorio
     loggeradd = f'http://{hostaddr}:{port}'
     loggerid = hostaddr.split('.')[0] + '-' + str(port)
-    mess = f'REGISTER|{loggerid},LOGGER,{loggeradd}'
+    mess = build_directory_register(loggerid, 'LOGGER', loggeradd, sender=loggerid)
 
     done = False
     while not done:
         try:
-            resp = requests.get(diraddress + '/message', params={'message': mess}).text
+            resp = send_graph_message(diraddress, mess)
             done = True
         except ConnectionError:
             print
             pass
 
-    if 'OK' in resp:
+    if response_ok(resp):
         print(f'LOGGER successfully registered')
         # Ponemos en marcha el servidor Flask
         app.run(host=hostname, port=port, debug=False, use_reloader=False)
 
-        mess = f'UNREGISTER|{loggerid}'
-        requests.get(diraddress + '/message', params={'message': mess})
+        mess = build_directory_unregister(loggerid, sender=loggerid)
+        send_graph_message(diraddress, mess)
     else:
         print('Unable to register')
         
