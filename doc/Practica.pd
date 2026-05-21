@@ -8,8 +8,8 @@
 	    <field name="name">Practica</field>
 	    <field name="description">ECSDI</field>
 	    <field name="fileNameLastSavedAs">Practica.pd</field>
-	    <field name="filePathLastSavedIn">C:\Users\miste\Documents\Projects\ECSDI\doc</field>
-	    <field name="openedAs">C:\Users\miste\Documents\Projects\ECSDI\doc\Practica.pd</field>
+	    <field name="filePathLastSavedIn">/home/jaume/FIB/ECSDI/doc</field>
+	    <field name="openedAs">/home/jaume/FIB/ECSDI/doc/Practica.pd</field>
 	    <field name="author">Ramon, Genis i Jaume</field>
 	    <field name="applicationVersion">3.3b_internal</field>
 	</object>
@@ -5151,6 +5151,12 @@ finish</field>
 																																																																																																						<object ref="201"/>
 																																																																																																						</list>
 																																																																																																					    </field>
+																																																																																																					    <field name="readBy"><list>
+																																																																																																						<object ref="26"/>
+
+																																																																																																						<object ref="201"/>
+																																																																																																						</list>
+																																																																																																					    </field>
 																																																																																																					    <field name="initialisation"></field>
 																																																																																																					    <field name="writtenWhen"></field>
 																																																																																																					    <field name="connections"><list>
@@ -5162,6 +5168,10 @@ finish</field>
 
 																																																																																																						    <field name="type">
 																																																																																																							<object ref="299"/>
+																																																																																																						    </field>
+																																																																																																						    <field name="readingEntities"><list>
+																																																																																																							<object ref="26"/>
+																																																																																																							</list>
 																																																																																																						    </field>
 																																																																																																						    <field name="writingEntities"><list>
 																																																																																																							<object ref="26"/>
@@ -5176,6 +5186,10 @@ finish</field>
 
 																																																																																																							    <field name="type">
 																																																																																																								<object ref="299"/>
+																																																																																																							    </field>
+																																																																																																							    <field name="readingEntities"><list>
+																																																																																																								<object ref="201"/>
+																																																																																																								</list>
 																																																																																																							    </field>
 																																																																																																							    <field name="writingEntities"><list>
 																																																																																																								<object ref="201"/>
@@ -5201,8 +5215,12 @@ finish</field>
 																																																																																																					    <field name="externalPath"></field>
 																																																																																																					</object>
 																																																																																																				    </field>
-																																																																																																				    <field name="writingEntities"><list>
+																																																																																																				    <field name="readingEntities"><list>
 																																																																																																					<object ref="274"/>
+																																																																																																					</list>
+																																																																																																				    </field>
+																																																																																																				    <field name="writingEntities"><list>
+																																																																																																					<object ref="220"/>
 																																																																																																					</list>
 																																																																																																				    </field>
 																																																																																																				    <field name="parentConnection">
@@ -5215,7 +5233,7 @@ finish</field>
 																																																																																																			    <field name="failure"></field>
 																																																																																																			    <field name="failureRecovery"></field>
 																																																																																																			    <field name="procedure">1. Recepción de productos, cantidades y centro logístico que los contiene.
-2. Se registra la compra a la base de datos.
+2. Se lee dirección de compra de la base de datos.
 3. Se le asigna un lote al producto en ese centro logístico.
 4. Si el producto es de propiedad externa, se notifica al catalogador.</field>
 																																																																																																			</object>
@@ -6229,17 +6247,22 @@ finish</field>
 																																																																																								</object>
 																																																																																								</list>
 																																																																																							    </field>
+																																																																																							    <field name="data"><list>
+																																																																																								<object ref="298"/>
+																																																																																								</list>
+																																																																																							    </field>
 																																																																																							    <field name="context"></field>
 																																																																																							    <field name="failure"></field>
 																																																																																							    <field name="failureRecovery"></field>
 																																																																																							    <field name="procedure">1. Se recibe un conjunto de ID y cantidades de productos a comprar por parte del cliente
 2. Se envía al Tesorero un mensaje con los datos bancarios del cliente. 
-2. Se pregunta al catalogador los precios y si son externos o internos
-3. Se espera la respuesta por parte del catalogador
-4. Se recibe la respuesta del catalogador con la información de los productos
-5. Se envia un mensaje al plan Buscar existencias solo con los productos internos
-6. Se envia un mensaje al plan Delegar a externos solo con los productos externos
-7. Se envia al usuario una factura con el resumen de lo que se le va a cobrar</field>
+3. Se guarda en la BD Compras la compra y sus datos, junto con su dirección de entrega.
+4. Se pregunta al catalogador los precios y si son externos o internos
+5. Se espera la respuesta por parte del catalogador
+6. Se recibe la respuesta del catalogador con la información de los productos
+7. Se envia un mensaje al plan Buscar existencias solo con los productos internos
+8. Se envia un mensaje al plan Delegar a externos solo con los productos externos
+9. Se envia al usuario una factura con el resumen de lo que se le va a cobrar</field>
 																																																																																							</object>
 																																																																																							</list>
 																																																																																						    </field>
@@ -10671,7 +10694,7 @@ finish</field>
 		    </field>
 		    <field name="location">
 			<object type="Coordinate" id="640">
-			    <field name="x">620</field>
+			    <field name="x">636</field>
 			    <field name="y">507</field>
 			</object>
 		    </field>
@@ -14512,8 +14535,8 @@ finish</field>
 		    </field>
 		    <field name="location">
 			<object type="Coordinate" id="1177">
-			    <field name="x">170</field>
-			    <field name="y">347</field>
+			    <field name="x">151</field>
+			    <field name="y">336</field>
 			</object>
 		    </field>
 		</object>
@@ -14693,8 +14716,8 @@ finish</field>
 		    </field>
 		    <field name="location">
 			<object type="Coordinate" id="1207">
-			    <field name="x">284</field>
-			    <field name="y">338</field>
+			    <field name="x">352</field>
+			    <field name="y">360</field>
 			</object>
 		    </field>
 		</object>
@@ -15314,8 +15337,8 @@ finish</field>
 		    </field>
 		    <field name="location">
 			<object type="Coordinate" id="1310">
-			    <field name="x">661</field>
-			    <field name="y">485</field>
+			    <field name="x">526</field>
+			    <field name="y">316</field>
 			</object>
 		    </field>
 		</object>
@@ -15445,8 +15468,8 @@ finish</field>
 		    </field>
 		    <field name="location">
 			<object type="Coordinate" id="1332">
-			    <field name="x">507</field>
-			    <field name="y">254</field>
+			    <field name="x">574</field>
+			    <field name="y">213</field>
 			</object>
 		    </field>
 		</object>
