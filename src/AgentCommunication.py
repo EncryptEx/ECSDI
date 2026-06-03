@@ -283,6 +283,8 @@ def add_product(graph, product, subject=None):
         graph.add((subject, ECSDI.valoracionProducto, Literal(float(product.get('rating')), datatype=XSD.float)))
     if product.get('external') is not None:
         graph.add((subject, ECSDI.esExterno, Literal(bool(product.get('external')), datatype=XSD.boolean)))
+    if product.get('warehouse_managed') is not None:
+        graph.add((subject, ECSDI.gestionLogisticaPropia, Literal(bool(product.get('warehouse_managed')), datatype=XSD.boolean)))
 
     tags = product.get('tags') or product.get('caracteristicasProducto') or []
     if isinstance(tags, str):
@@ -303,6 +305,7 @@ def product_from_graph(graph, subject):
     price = first_float(graph, subject, ECSDI.precioProducto)
     rating = first_float(graph, subject, ECSDI.valoracionProducto)
     external = graph.value(subject, ECSDI.esExterno)
+    warehouse_managed = graph.value(subject, ECSDI.gestionLogisticaPropia)
     tags = literal_values(graph, subject, ECSDI.caracteristicasProducto)
 
     if pid is not None:
@@ -323,6 +326,8 @@ def product_from_graph(graph, subject):
         product['rating'] = rating
     if external is not None:
         product['external'] = bool(external.toPython()) if hasattr(external, 'toPython') else str(external).lower() == 'true'
+    if warehouse_managed is not None:
+        product['warehouse_managed'] = bool(warehouse_managed.toPython()) if hasattr(warehouse_managed, 'toPython') else str(warehouse_managed).lower() == 'true'
     return product
 
 
@@ -466,7 +471,13 @@ def build_purchase_request(products, delivery_address, sender, receiver, client_
     if delivery_address:
         graph.add((compra, ECSDI.direccion, Literal(delivery_address)))
     for product_name, quantity in products.items():
-        _add_line(graph, compra, product_name, quantity)
+        if isinstance(quantity, dict):
+            product_data = dict(quantity)
+            product_data.setdefault('name', product_name)
+            line_quantity = product_data.get('quantity', 1)
+            _add_line(graph, compra, product_data, line_quantity)
+        else:
+            _add_line(graph, compra, product_name, quantity)
     return graph
 
 
@@ -489,7 +500,13 @@ def build_line_request(content_type, products, sender, receiver, performative=AC
     if delivery_address:
         graph.add((compra, ECSDI.direccion, Literal(delivery_address)))
     for product_name, quantity in products.items():
-        _add_line(graph, compra, product_name, quantity)
+        if isinstance(quantity, dict):
+            product_data = dict(quantity)
+            product_data.setdefault('name', product_name)
+            line_quantity = product_data.get('quantity', 1)
+            _add_line(graph, compra, product_data, line_quantity)
+        else:
+            _add_line(graph, compra, product_name, quantity)
     return graph
 
 
@@ -614,6 +631,56 @@ def build_purchase_result(ok, sender, receiver, conversation_id=None, total=0.0)
     graph.add((content, ECSDI.contiene_factura, factura))
     graph.add((content, ECSDI.existe, Literal(bool(ok), datatype=XSD.boolean)))
     return graph
+
+
+def purchase_result_total(graph, default=0.0):
+    content = get_message_properties(graph)['content']
+    factura = graph.value(content, ECSDI.contiene_factura)
+    if factura is None:
+        return default
+    return first_float(graph, factura, ECSDI.precioTotalFactura, default)
+
+
+def build_shipping_notice(purchase, sender, receiver, transportista='Transportista demo',
+                          delivery_date='', tracking_id='', message=''):
+    graph, content = build_message_with_content(
+        ECSDI.EnvioDatosEnvio,
+        performative=ACL.inform,
+        sender=sender,
+        receiver=receiver,
+        message_name='datos-envio'
+    )
+    if purchase.get('id'):
+        graph.add((content, ECSDI.idCompra, Literal(purchase['id'])))
+    if purchase.get('client_id'):
+        graph.add((content, ECSDI.idCliente, Literal(purchase['client_id'])))
+    if purchase.get('delivery_address'):
+        graph.add((content, ECSDI.direccion, Literal(purchase['delivery_address'])))
+    if transportista:
+        graph.add((content, ECSDI.nombreTransportista, Literal(transportista)))
+    if delivery_date:
+        graph.add((content, ECSDI.fechaEntrega, Literal(delivery_date, datatype=XSD.dateTime)))
+    if tracking_id:
+        graph.add((content, ECSDI.idEnvio, Literal(tracking_id)))
+    if message:
+        graph.add((content, ECSDI.mensajePersonalizado, Literal(message)))
+    compra = add_purchase(graph, purchase)
+    graph.add((content, ECSDI.contiene_compra, compra))
+    return graph
+
+
+def shipping_notice_from_content(graph, content):
+    purchase = purchase_from_content(graph, content)
+    return {
+        'purchase_id': first_literal(graph, content, ECSDI.idCompra, purchase.get('id', '')),
+        'client_id': first_literal(graph, content, ECSDI.idCliente, purchase.get('client_id', '')),
+        'delivery_address': first_literal(graph, content, ECSDI.direccion, purchase.get('delivery_address', '')),
+        'transportista': first_literal(graph, content, ECSDI.nombreTransportista, ''),
+        'delivery_date': first_literal(graph, content, ECSDI.fechaEntrega, ''),
+        'tracking_id': first_literal(graph, content, ECSDI.idEnvio, ''),
+        'message': first_literal(graph, content, ECSDI.mensajePersonalizado, ''),
+        'purchase': purchase
+    }
 
 
 def build_product_info_request(products, sender, receiver):
@@ -871,6 +938,62 @@ def feedback_from_request(graph, content):
         'comment': first_literal(graph, content, ECSDI.mensajePersonalizado, ''),
         'product_id': first_literal(graph, rating_node, ECSDI.idProducto, '') if rating_node else '',
         'rating': first_float(graph, rating_node, ECSDI.valoracionProducto, 0.0) if rating_node else 0.0
+    }
+
+
+def build_feedback_request(purchase, item, sender, receiver):
+    graph, content = build_message_with_content(
+        ECSDI.PeticionFeedbackCliente,
+        performative=ACL.request,
+        sender=sender,
+        receiver=receiver,
+        message_name='Pedir feedback'
+    )
+    if purchase.get('id'):
+        graph.add((content, ECSDI.idCompra, Literal(purchase['id'])))
+    if purchase.get('client_id'):
+        graph.add((content, ECSDI.idCliente, Literal(purchase['client_id'])))
+    product = add_product(graph, item)
+    graph.add((content, ECSDI.contiene_productos, product))
+    name = item.get('name') or item.get('id') or 'producto comprado'
+    graph.add((content, ECSDI.mensajePersonalizado, Literal(f'Valora tu compra de {name}')))
+    return graph
+
+
+def feedback_request_from_content(graph, content):
+    product_node = graph.value(content, ECSDI.contiene_productos)
+    product = product_from_graph(graph, product_node) if product_node is not None else {}
+    return {
+        'purchase_id': first_literal(graph, content, ECSDI.idCompra, ''),
+        'client_id': first_literal(graph, content, ECSDI.idCliente, ''),
+        'product': product,
+        'message': first_literal(graph, content, ECSDI.mensajePersonalizado, '')
+    }
+
+
+def build_recommendation_notice(client_id, products, sender, receiver, message=''):
+    graph, content = build_message_with_content(
+        ECSDI.EnvioSugerenciaProductoACliente,
+        performative=ACL.inform,
+        sender=sender,
+        receiver=receiver,
+        message_name='Enviar sugerencia'
+    )
+    if client_id:
+        graph.add((content, ECSDI.idCliente, Literal(client_id)))
+    if message:
+        graph.add((content, ECSDI.mensajePersonalizado, Literal(message)))
+    for product_data in products:
+        product = add_product(graph, product_data)
+        graph.add((content, ECSDI.contiene_productos, product))
+    return graph
+
+
+def recommendation_notice_from_content(graph, content):
+    return {
+        'client_id': first_literal(graph, content, ECSDI.idCliente, ''),
+        'message': first_literal(graph, content, ECSDI.mensajePersonalizado, ''),
+        'products': [product_from_graph(graph, product) for product in graph.objects(content, ECSDI.contiene_productos)]
     }
 
 

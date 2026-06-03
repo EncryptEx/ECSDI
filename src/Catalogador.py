@@ -73,6 +73,7 @@ catalog = [
         'seller': 'ECSDI Store',
         'provider': 'ECSDI Store',
         'external': False,
+        'warehouse_managed': True,
         'price': 39.99,
         'tags': ['audio', 'bluetooth', 'auriculares']
     },
@@ -83,6 +84,7 @@ catalog = [
         'seller': 'TechHub',
         'provider': 'TechHub',
         'external': True,
+        'warehouse_managed': True,
         'price': 79.95,
         'tags': ['teclado', 'gaming', 'mecanico']
     },
@@ -93,6 +95,7 @@ catalog = [
         'seller': 'ECSDI Store',
         'provider': 'ECSDI Store',
         'external': False,
+        'warehouse_managed': True,
         'price': 24.5,
         'tags': ['mouse', 'ergonomico', 'oficina']
     },
@@ -103,6 +106,7 @@ catalog = [
         'seller': 'ScreenWorld',
         'provider': 'ScreenWorld',
         'external': True,
+        'warehouse_managed': True,
         'price': 229.0,
         'tags': ['monitor', '2k', 'oficina']
     },
@@ -113,6 +117,7 @@ catalog = [
         'seller': 'HomePlus',
         'provider': 'HomePlus',
         'external': True,
+        'warehouse_managed': False,
         'price': 119.0,
         'tags': ['hogar', 'cocina', 'cafe']
     },
@@ -123,6 +128,7 @@ catalog = [
         'seller': 'BagStore',
         'provider': 'BagStore',
         'external': True,
+        'warehouse_managed': False,
         'price': 45.0,
         'tags': ['mochila', 'viaje', 'accesorios']
     },
@@ -133,6 +139,7 @@ catalog = [
         'seller': 'ECSDI Store',
         'provider': 'ECSDI Store',
         'external': False,
+        'warehouse_managed': True,
         'price': 16.75,
         'tags': ['hogar', 'iluminacion', 'led']
     },
@@ -143,6 +150,7 @@ catalog = [
         'seller': 'BookPlanet',
         'provider': 'BookPlanet',
         'external': True,
+        'warehouse_managed': False,
         'price': 31.2,
         'tags': ['libro', 'python', 'agentes']
     }
@@ -290,6 +298,7 @@ def external_product_from_request(graph, content):
         product['provider'] = provider
         product.setdefault('seller', provider)
     product['external'] = True
+    product.setdefault('warehouse_managed', False)
     return product, iban
 
 

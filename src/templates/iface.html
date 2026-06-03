@@ -25,6 +25,36 @@
 <div class="msg">{{ iface_message }}</div>
 {% endif %}
 
+{% if notifications %}
+<div class="box">
+    <h3>Notificaciones del sistema</h3>
+    {% for notification in notifications %}
+    <div class="subbox">
+        <p><strong>{{ notification.title }}</strong> <span class="muted">({{ notification.status }})</span></p>
+        <p>{{ notification.body }}</p>
+        {% if notification.kind == 'feedback' and notification.status == 'pending' %}
+        <form action="/message" method="post">
+            <input type="hidden" name="action" value="submit_feedback">
+            <input type="hidden" name="notification_id" value="{{ notification.id }}">
+            <input type="hidden" name="product_id" value="{{ notification.data.product.id or notification.data.product.name }}">
+            <div class="row">
+                <div class="field">
+                    <label>Valoracion</label>
+                    <input class="small" type="number" name="rating" min="0" max="5" step="0.5" required>
+                </div>
+                <div class="field">
+                    <label>Comentario</label>
+                    <input type="text" name="comment">
+                </div>
+            </div>
+            <p><button type="submit">Enviar feedback</button></p>
+        </form>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
 <div class="box">
     <h3>Lista de restricciones (una fila por producto deseado)</h3>
     <form action="/message" method="post">
@@ -152,8 +182,16 @@
     <form action="/message" method="post">
         <input type="hidden" name="action" value="confirm_proposal">
         <div class="field">
+            <label>Identificador de cliente</label>
+            <input type="text" value="{{ client_id }}" disabled>
+        </div>
+        <div class="field">
             <label>Direccion de entrega</label>
             <input type="text" name="delivery_address" value="{{ delivery_address }}" required>
+        </div>
+        <div class="field">
+            <label>IBAN para el cobro</label>
+            <input type="text" name="client_iban" value="{{ client_iban }}" required>
         </div>
         <p>
             <button type="submit">Confirmar propuesta y comprar</button>

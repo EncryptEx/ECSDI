@@ -31,9 +31,15 @@ from AgentCommunication import (
     ACL,
     ECSDI,
     build_directory_register,
+    build_directory_search,
     build_directory_unregister,
+    build_feedback_request,
+    build_recommendation_notice,
     build_ratings_response,
     build_status_response,
+    build_user_purchases_request,
+    build_week_purchases_request,
+    directory_addresses_from_response,
     feedback_from_request,
     get_message_properties,
     has_type,
@@ -41,7 +47,9 @@ from AgentCommunication import (
     message_sender,
     parse_graph,
     product_ids_from_ratings_request,
+    purchases_from_response,
     response_ok,
+    response_text,
     send_graph_message,
     serialize_graph,
 )
@@ -49,6 +57,9 @@ from AgentCommunication import (
 app = Flask(__name__)
 
 log_prefix = 'valorador'
+diraddress = ''
+FEEDBACK_REQUESTED = set()
+RECOMMENDATIONS_SENT = set()
 
 
 def log(msg):
@@ -74,6 +85,77 @@ RATING_EVENTS = {
 
 def get_ratings(product_ids):
     return {pid: float(RATINGS.get(pid, 3.5)) for pid in product_ids}
+
+
+def directory_addresses(agent_type, all_agents=False):
+    if not diraddress:
+        return [], 'DIRECTORY NOT CONFIGURED'
+    try:
+        response = send_graph_message(
+            diraddress,
+            build_directory_search(agent_type, sender=log_prefix, all_agents=all_agents)
+        )
+    except ConnectionError:
+        return [], 'CONNECTION ERROR'
+    except Exception:
+        return [], 'INVALID DIRECTORY RESPONSE'
+
+    if not response_ok(response):
+        return [], response_text(response, 'NOT FOUND')
+    addresses = directory_addresses_from_response(response)
+    if not addresses:
+        return [], 'NOT FOUND'
+    return addresses, None
+
+
+def query_ventas_purchases(week_only=False):
+    addresses, error = directory_addresses('VENTAS')
+    if error:
+        return [], error
+    request_graph = (
+        build_week_purchases_request(sender=log_prefix, receiver='VENTAS')
+        if week_only
+        else build_user_purchases_request('', sender=log_prefix, receiver='VENTAS')
+    )
+    try:
+        response = send_graph_message(addresses[0], request_graph)
+    except ConnectionError:
+        return [], 'VENTAS CONNECTION ERROR'
+    except Exception:
+        return [], 'VENTAS INVALID RESPONSE'
+    if not response_ok(response):
+        return [], response_text(response, 'VENTAS ERROR')
+    return purchases_from_response(response), None
+
+
+def send_to_clients(graph):
+    addresses, error = directory_addresses('CLIENTE', all_agents=True)
+    if error:
+        log(f'CLIENTE not found: {error}')
+        return 0
+    sent = 0
+    for address in addresses:
+        try:
+            response = send_graph_message(address, graph)
+            if response_ok(response):
+                sent += 1
+        except Exception as exc:
+            log(f'CLIENTE proactive message failed at {address}: {exc}')
+    return sent
+
+
+def recommendations_for_purchase(purchase):
+    purchased_ids = {
+        str(item.get('id') or '').strip()
+        for item in purchase.get('items') or []
+        if item.get('id')
+    }
+    candidates = [
+        {'id': product_id, 'name': f'Producto recomendado {product_id}', 'rating': rating}
+        for product_id, rating in sorted(RATINGS.items(), key=lambda item: item[1], reverse=True)
+        if product_id not in purchased_ids
+    ]
+    return candidates[:3]
 
 
 def save_feedback(graph, content):
@@ -169,6 +251,73 @@ def message():
             conversation_id=conversation_id
         )
         return serialize_graph(response)
+
+
+@app.route('/tick/feedback')
+def tick_feedback():
+    purchases, error = query_ventas_purchases(week_only=True)
+    if error:
+        text = f'FEEDBACK TIMER ERROR: {error}'
+        log(text)
+        return text
+
+    sent = 0
+    for purchase in purchases:
+        items = purchase.get('items') or []
+        if not items:
+            continue
+        item = items[0]
+        product_key = item.get('id') or item.get('name') or ''
+        key = (purchase.get('id', ''), product_key)
+        if key in FEEDBACK_REQUESTED:
+            continue
+        graph = build_feedback_request(purchase, item, sender=log_prefix, receiver='CLIENTE')
+        delivered = send_to_clients(graph)
+        if delivered:
+            FEEDBACK_REQUESTED.add(key)
+            sent += delivered
+
+    text = f'FEEDBACK REQUESTS={sent}'
+    log(text)
+    return text
+
+
+@app.route('/tick/recomendaciones')
+def tick_recomendaciones():
+    purchases, error = query_ventas_purchases(week_only=False)
+    if error:
+        text = f'RECOMENDACION TIMER ERROR: {error}'
+        log(text)
+        return text
+
+    sent = 0
+    by_client = {}
+    for purchase in purchases:
+        client_id = purchase.get('client_id') or ''
+        if client_id:
+            by_client.setdefault(client_id, []).append(purchase)
+
+    for client_id, client_purchases in by_client.items():
+        if client_id in RECOMMENDATIONS_SENT:
+            continue
+        recommendations = recommendations_for_purchase(client_purchases[-1])
+        if not recommendations:
+            continue
+        graph = build_recommendation_notice(
+            client_id,
+            recommendations,
+            sender=log_prefix,
+            receiver='CLIENTE',
+            message='Recomendaciones generadas por el temporizador de recomendaciones'
+        )
+        delivered = send_to_clients(graph)
+        if delivered:
+            RECOMMENDATIONS_SENT.add(client_id)
+            sent += delivered
+
+    text = f'RECOMENDACIONES={sent}'
+    log(text)
+    return text
 
 
 @app.route('/stop')

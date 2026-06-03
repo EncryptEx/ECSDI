@@ -51,6 +51,38 @@ The script auto-detects the Python interpreter in `env/`, `.venv/`, or falls bac
 
 > `develop.sh` is **not** meant for production – all agents bind to `127.0.0.1` and are only reachable locally.
 
+## Demo timers
+
+Some PDTool perceptions are proactive timers. For the demo, they are exposed as manual endpoints so you can accelerate the process after placing an order:
+
+```bash
+cd src/
+./demo_tick.sh
+```
+
+This triggers all local logistics centres to send pending shipping data to the client, then asks `Valorador` to send feedback requests and recommendations.
+
+Individual timer endpoints:
+
+```bash
+curl http://127.0.0.1:9030/tick/envios
+curl http://127.0.0.1:9031/tick/envios
+curl http://127.0.0.1:9032/tick/envios
+curl http://127.0.0.1:9033/tick/envios
+curl http://127.0.0.1:9050/tick/feedback
+curl http://127.0.0.1:9050/tick/recomendaciones
+```
+
+## Protocol test suite
+
+Run the in-process protocol game from the repository root:
+
+```bash
+src/env/bin/python src/ProtocolTestSuite.py
+```
+
+It covers internal products, external products stored in ECSDI logistics centres, fully external products, provider registration, client charging, provider payment, feedback and purchase-history `query-ref` protocols.
+
 ## Setup
 
 ```bash
@@ -75,6 +107,7 @@ src/
 ├── FlaskServer.py        # Shared Flask utilities
 ├── Util.py               # Shared helpers
 ├── StressTest.py         # Load/stress testing script
+├── ProtocolTestSuite.py  # In-process PDTool/FIPA protocol test game
 ├── develop.sh            # Local all-in-one launcher
 ├── requirements.txt
 └── templates/            # Jinja2 HTML templates

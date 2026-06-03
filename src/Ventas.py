@@ -96,6 +96,12 @@ def is_external_product(item):
     return bool(seller and seller != 'ecsdi store')
 
 
+def is_warehouse_managed_product(item):
+    if item.get('warehouse_managed') is not None:
+        return bool(item.get('warehouse_managed'))
+    return not is_external_product(item)
+
+
 def store_completed_purchase(purchase):
     purchase_id = purchase.get('id') or str(uuid4())
     purchase['id'] = purchase_id
@@ -114,6 +120,7 @@ def fallback_product_info(products):
             'seller': 'ECSDI Store',
             'provider': 'ECSDI Store',
             'external': False,
+            'warehouse_managed': True,
         }
         for product, quantity in products.items()
     ]
@@ -369,20 +376,40 @@ def message():
     incoming_purchase = purchase_from_content(graph, content)
     delivery_address = incoming_purchase.get('delivery_address') or delivery_address_from_purchase(graph, content)
     client_id = incoming_purchase.get('client_id') or sender
-    client_iban = incoming_purchase.get('client_iban') or f'IBAN-{client_id}'
+    client_iban = incoming_purchase.get('client_iban') or ''
     purchase_id = incoming_purchase.get('id') or str(uuid4())
+
+    if not delivery_address:
+        response = build_status_response(
+            log_prefix,
+            sender,
+            ok=False,
+            text='DIRECCION DE ENTREGA OBLIGATORIA',
+            conversation_id=conversation_id
+        )
+        return serialize_graph(response)
+
+    if not client_iban:
+        response = build_status_response(
+            log_prefix,
+            sender,
+            ok=False,
+            text='DATOS BANCARIOS CLIENTE OBLIGATORIOS',
+            conversation_id=conversation_id
+        )
+        return serialize_graph(response)
 
     product_info = fetch_product_info(products_to_buy)
     product_by_name = {product_name(product).lower(): product for product in product_info}
-    internal_products = {
+    warehouse_products = {
         product_name(product): int(product.get('quantity', products_to_buy.get(product_name(product), 1)))
         for product in product_info
-        if product_name(product) and not is_external_product(product)
+        if product_name(product) and is_warehouse_managed_product(product)
     }
-    external_items = [
+    fully_external_items = [
         dict(product, quantity=int(product.get('quantity', products_to_buy.get(product_name(product), 1))))
         for product in product_info
-        if product_name(product) and is_external_product(product)
+        if product_name(product) and not is_warehouse_managed_product(product)
     ]
     assigned_items = []
 
@@ -393,7 +420,7 @@ def message():
     register_client_in_tesorero(client_id, client_iban, delivery_address)
 
     centros_logisticos, error = query_directory_service('CENTRO_LOGISTICO', all_agents=True)
-    if error and internal_products:
+    if error and warehouse_products:
         log('No logistics centers found in directory service')
         response = build_status_response(
             log_prefix,
@@ -404,16 +431,16 @@ def message():
         )
         return serialize_graph(response)
 
-    remaining_internal = dict(internal_products)
+    remaining_warehouse = dict(warehouse_products)
     log(f'Logistics centers available: {centros_logisticos}')
     for centro_addr in centros_logisticos:
-        if not remaining_internal:
+        if not remaining_warehouse:
             break
 
         try:
             exists_request = build_line_request(
                 ECSDI.PeticionExisteLineaComanda,
-                remaining_internal,
+                remaining_warehouse,
                 sender=log_prefix,
                 receiver='CENTRO_LOGISTICO',
                 performative=ACL['query-if'],
@@ -434,15 +461,20 @@ def message():
         availability = availability_from_response(resp)
         log(f'Center {centro_addr} availability: {availability}')
 
-        to_buy_here = {p: remaining_internal[p] for p, ok in availability.items() if ok and p in remaining_internal}
+        to_buy_here = {p: remaining_warehouse[p] for p, ok in availability.items() if ok and p in remaining_warehouse}
         if not to_buy_here:
             log(f'Center {centro_addr} cannot handle any remaining product, skipping')
             continue
 
         try:
             log(f'Assigning lot in {centro_addr}: {to_buy_here}')
+            assignment_payload = {}
+            for product, quantity in to_buy_here.items():
+                item = dict(product_by_name.get(product.lower(), {'name': product, 'price': 0.0}))
+                item['quantity'] = quantity
+                assignment_payload[product] = item
             buy_request = build_lot_assignment_request(
-                to_buy_here,
+                assignment_payload,
                 sender=log_prefix,
                 receiver='CENTRO_LOGISTICO',
                 delivery_address=delivery_address,
@@ -452,11 +484,11 @@ def message():
             buy_resp = send_graph_message(centro_addr, buy_request)
             if response_ok(buy_resp):
                 log(f'Lot assigned in {centro_addr}: {to_buy_here}')
-                for product in to_buy_here:
-                    item = dict(product_by_name.get(product.lower(), {'name': product, 'price': 0.0}))
-                    item['quantity'] = to_buy_here[product]
+                for product, quantity in to_buy_here.items():
+                    item = dict(assignment_payload[product])
+                    item['quantity'] = quantity
                     assigned_items.append(item)
-                    del remaining_internal[product]
+                    del remaining_warehouse[product]
             else:
                 log(f'Lot assignment from {centro_addr} failed: {response_text(buy_resp, "ERROR")}')
         except ConnectionError:
@@ -464,8 +496,8 @@ def message():
         except Exception as exc:
             log(f'Center {centro_addr} returned invalid lot assignment response: {exc}')
 
-    if remaining_internal:
-        log(f'Purchase incomplete, remaining internal products: {remaining_internal}')
+    if remaining_warehouse:
+        log(f'Purchase incomplete, remaining warehouse-managed products: {remaining_warehouse}')
         response = build_purchase_result(
             False,
             sender=log_prefix,
@@ -473,17 +505,26 @@ def message():
             conversation_id=conversation_id
         )
     else:
-        assigned_items.extend(external_items)
         purchase = {
             'id': purchase_id,
             'client_id': client_id,
             'client_iban': client_iban,
             'delivery_address': delivery_address,
-            'items': assigned_items
+            'items': assigned_items + fully_external_items
         }
         compras[purchase_id] = purchase
-        request_external_provider_payments(purchase)
-        request_client_charge(purchase)
+
+        if fully_external_items:
+            external_purchase = {
+                'id': purchase_id,
+                'client_id': client_id,
+                'client_iban': client_iban,
+                'delivery_address': delivery_address,
+                'items': fully_external_items
+            }
+            request_external_provider_payments(external_purchase)
+            request_client_charge(external_purchase)
+
         store_completed_purchase(purchase)
         total = purchase_total(purchase)
         log(f'All products purchased successfully; total={total:.2f}')

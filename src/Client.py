@@ -28,14 +28,29 @@ import socket
 __author__ = 'bejar'
 
 from AgentCommunication import (
+    ECSDI,
+    build_directory_register,
     build_directory_search,
+    build_directory_unregister,
+    build_feedback_response,
     build_purchase_request,
     build_search_request,
+    build_status_response,
     directory_addresses_from_response,
+    feedback_request_from_content,
+    get_message_properties,
+    has_type,
+    message_conversation,
+    message_sender,
+    parse_graph,
+    purchase_result_total,
     products_from_search_response,
+    recommendation_notice_from_content,
     response_ok,
     response_text,
     send_graph_message,
+    serialize_graph,
+    shipping_notice_from_content,
 )
 
 app = Flask(__name__)
@@ -59,8 +74,11 @@ last_restrictions = [
     }
 ]
 last_delivery_address = ''
+last_client_iban = ''
 iface_message = ''
 has_searched = False
+client_notifications = []
+notification_counter = 0
 
 
 def empty_restriction_row():
@@ -77,6 +95,124 @@ def empty_restriction_row():
 
 def log(msg):
     print(f'[{log_prefix}] {msg}', flush=True)
+
+
+def add_notification(kind, title, body, data=None, status='received'):
+    global notification_counter
+    notification_counter += 1
+    notification = {
+        'id': f'N{notification_counter:04}',
+        'kind': kind,
+        'title': title,
+        'body': body,
+        'data': data or {},
+        'status': status
+    }
+    client_notifications.insert(0, notification)
+    log(f'Notification {notification["id"]}: {title}')
+    return notification
+
+
+def find_agent(agent_type, all_agents=False):
+    try:
+        response = send_graph_message(
+            diraddress,
+            build_directory_search(agent_type, sender=clientid or log_prefix, all_agents=all_agents)
+        )
+    except ConnectionError:
+        return [], 'No se puede conectar al servicio de directorio'
+    except Exception:
+        return [], 'Respuesta invalida del servicio de directorio'
+
+    if not response_ok(response):
+        return [], response_text(response, f'No hay agente {agent_type} registrado')
+
+    addresses = directory_addresses_from_response(response)
+    if not addresses:
+        return [], f'No hay agente {agent_type} registrado'
+    return addresses, None
+
+
+def receive_agent_message(graph):
+    try:
+        props = get_message_properties(graph)
+        sender = message_sender(props)
+        conversation_id = message_conversation(props)
+        content = props['content']
+    except Exception as exc:
+        log(f'Invalid incoming agent message: {exc}')
+        return build_status_response(clientid or log_prefix, 'unknown', ok=False, text='INVALID RDF/FIPA MESSAGE')
+
+    if has_type(graph, content, ECSDI.EnvioDatosEnvio):
+        notice = shipping_notice_from_content(graph, content)
+        body = (
+            f'Compra {notice["purchase_id"]}: {notice["transportista"]} '
+            f'entregara en {notice["delivery_address"]} el {notice["delivery_date"]}'
+        )
+        if notice.get('tracking_id'):
+            body += f' (seguimiento {notice["tracking_id"]})'
+        add_notification('envio', 'Datos de envio recibidos', body, notice)
+        return build_status_response(clientid or log_prefix, sender, ok=True, text='DATOS ENVIO RECIBIDOS',
+                                     conversation_id=conversation_id)
+
+    if has_type(graph, content, ECSDI.PeticionFeedbackCliente):
+        feedback = feedback_request_from_content(graph, content)
+        product = feedback.get('product') or {}
+        product_name = product.get('name') or product.get('id') or 'producto'
+        add_notification(
+            'feedback',
+            'Peticion de feedback',
+            feedback.get('message') or f'Valora tu compra de {product_name}',
+            feedback,
+            status='pending'
+        )
+        return build_status_response(clientid or log_prefix, sender, ok=True, text='PETICION FEEDBACK RECIBIDA',
+                                     conversation_id=conversation_id)
+
+    if has_type(graph, content, ECSDI.EnvioSugerenciaProductoACliente):
+        recommendation = recommendation_notice_from_content(graph, content)
+        product_names = [
+            product.get('name') or product.get('id') or 'producto'
+            for product in recommendation.get('products') or []
+        ]
+        body = recommendation.get('message') or 'Productos recomendados: ' + ', '.join(product_names)
+        add_notification('recomendacion', 'Recomendaciones recibidas', body, recommendation)
+        return build_status_response(clientid or log_prefix, sender, ok=True, text='RECOMENDACIONES RECIBIDAS',
+                                     conversation_id=conversation_id)
+
+    return build_status_response(clientid or log_prefix, sender, ok=False, text='MENSAJE NO SOPORTADO',
+                                 conversation_id=conversation_id)
+
+
+def submit_feedback_to_valorador(notification_id, product_id, rating, comment):
+    addresses, error = find_agent('VALORADOR')
+    if error:
+        return error
+
+    graph = build_feedback_response(
+        product_id,
+        rating,
+        client_id=clientid or log_prefix,
+        comment=comment,
+        sender=clientid or log_prefix,
+        receiver='VALORADOR'
+    )
+    try:
+        response = send_graph_message(addresses[0], graph)
+    except ConnectionError:
+        return 'No se puede conectar con VALORADOR'
+    except Exception:
+        return 'Respuesta invalida de VALORADOR'
+
+    if not response_ok(response):
+        return response_text(response, 'VALORADOR rechazo el feedback')
+
+    for notification in client_notifications:
+        if notification['id'] == notification_id:
+            notification['status'] = 'sent'
+            notification['body'] += f' - enviado feedback {rating:.1f}/5'
+            break
+    return None
 
 
 def parse_restrictions(form):
@@ -183,7 +319,17 @@ def message():
     global assistant_proposal
     global last_restrictions
     global last_delivery_address
+    global last_client_iban
     global has_searched
+
+    if request.method == 'GET' and 'message' in request.args:
+        try:
+            graph = parse_graph(request.args['message'])
+            response = receive_agent_message(graph)
+        except Exception as exc:
+            log(f'Incoming RDF message failed: {exc}')
+            response = build_status_response(clientid or log_prefix, 'unknown', ok=False, text='INVALID MESSAGE')
+        return serialize_graph(response)
 
     if request.method == 'POST':
         action = request.form.get('action', '').strip()
@@ -250,7 +396,9 @@ def message():
 
         elif action == 'confirm_proposal':
             delivery_address = request.form.get('delivery_address', '').strip()
+            client_iban = request.form.get('client_iban', '').strip()
             last_delivery_address = delivery_address
+            last_client_iban = client_iban
 
             if not assistant_proposal:
                 iface_message = 'No hay propuesta del asistente para confirmar'
@@ -260,14 +408,18 @@ def message():
                 iface_message = 'La direccion de entrega es obligatoria'
                 return redirect(url_for('.iface'))
 
+            if not client_iban:
+                iface_message = 'El IBAN del cliente es obligatorio para procesar el cobro'
+                return redirect(url_for('.iface'))
+
             products = {}
             for item in assistant_proposal:
                 product_name = item['product']['name']
                 products[product_name] = products.get(product_name, 0) + 1
 
-            order_id, status = send_message(products, delivery_address)
+            order_id, status, invoice_total = send_message(products, delivery_address, client_iban)
             if status == 'SENT':
-                iface_message = f'Pedido {order_id} enviado correctamente'
+                iface_message = f'Pedido {order_id} enviado correctamente. Factura: {invoice_total:.2f} EUR'
             else:
                 iface_message = f'Pedido {order_id} no enviado ({status})'
 
@@ -276,7 +428,32 @@ def message():
             assistant_proposal = []
             last_restrictions = [empty_restriction_row()]
             last_delivery_address = ''
+            last_client_iban = ''
             has_searched = False
+
+        elif action == 'submit_feedback':
+            notification_id = request.form.get('notification_id', '').strip()
+            product_id = request.form.get('product_id', '').strip()
+            comment = request.form.get('comment', '').strip()
+            try:
+                rating = float(request.form.get('rating', '').strip())
+            except ValueError:
+                iface_message = 'La valoracion debe ser numerica'
+                return redirect(url_for('.iface'))
+
+            if rating < 0.0 or rating > 5.0:
+                iface_message = 'La valoracion debe estar entre 0 y 5'
+                return redirect(url_for('.iface'))
+
+            if not product_id:
+                iface_message = 'No se puede enviar feedback sin producto'
+                return redirect(url_for('.iface'))
+
+            error = submit_feedback_to_valorador(notification_id, product_id, rating, comment)
+            if error:
+                iface_message = f'Feedback no enviado: {error}'
+            else:
+                iface_message = 'Feedback enviado correctamente'
 
         return redirect(url_for('.iface'))
 
@@ -307,6 +484,9 @@ def iface():
         proposal=assistant_proposal,
         proposal_total=proposal_total,
         delivery_address=last_delivery_address,
+        client_iban=last_client_iban,
+        client_id=clientid or log_prefix,
+        notifications=client_notifications,
         iface_message=iface_message,
         has_searched=has_searched
     )
@@ -357,7 +537,7 @@ def search_products(filters):
     return [], response_text(resp, 'Respuesta de error de CATALOGADOR')
 
 
-def send_message(products, delivery_address):
+def send_message(products, delivery_address, client_iban):
     """
     Envia una solicitud de compra al agente de ventas
 
@@ -367,7 +547,8 @@ def send_message(products, delivery_address):
 
     :param products: diccionario de productos a comprar
     :param delivery_address: direccion de entrega del cliente
-    :return: order id y estado
+    :param client_iban: datos bancarios del cliente para el cobro
+    :return: order id, estado y total de factura
     """
     global probcounter
     global clientid
@@ -380,6 +561,7 @@ def send_message(products, delivery_address):
 
     log(f'New order {probid}: {products}')
     log(f'Delivery address for {probid}: {delivery_address}')
+    log(f'Billing data for {probid}: client_id={clientid or log_prefix}, iban={client_iban}')
 
     # Busca el agente de ventas en el servicio de directorio
     log('Searching for VENTAS in directory service')
@@ -391,11 +573,11 @@ def send_message(products, delivery_address):
     except ConnectionError:
         problems[probid] = [products, 'FAILED DS CONNECTION']
         log(f'{probid} connection error to Directory Service')
-        return probid, 'FAILED DS CONNECTION'
+        return probid, 'FAILED DS CONNECTION', 0.0
     except Exception:
         problems[probid] = [products, 'FAILED DS RESPONSE']
         log(f'{probid} invalid response from Directory Service')
-        return probid, 'FAILED DS RESPONSE'
+        return probid, 'FAILED DS RESPONSE', 0.0
 
     # Agente de ventas encontrado
     if response_ok(ventas_response):
@@ -403,37 +585,45 @@ def send_message(products, delivery_address):
         if not addresses:
             problems[probid] = [products, 'FAILED DS']
             log(f'{probid} VENTAS not found in directory service')
-            return probid, 'FAILED DS'
+            return probid, 'FAILED DS', 0.0
 
         ventasaddr = addresses[0]
         log(f'Found VENTAS at {ventasaddr}')
 
         problems[probid] = [products, 'PENDING']
-        mess = build_purchase_request(products, delivery_address, sender=clientid or log_prefix, receiver='VENTAS')
+        mess = build_purchase_request(
+            products,
+            delivery_address,
+            sender=clientid or log_prefix,
+            receiver='VENTAS',
+            client_id=clientid or log_prefix,
+            client_iban=client_iban
+        )
         log(f'Sending RDF/FIPA PeticionCompra to VENTAS')
         try:
             resp = send_graph_message(ventasaddr, mess)
             if response_ok(resp):
-                problems[probid][1] = 'SENT'
-                log(f'{probid} sent successfully')
-                return probid, 'SENT'
+                invoice_total = purchase_result_total(resp, 0.0)
+                problems[probid][1] = f'SENT - factura {invoice_total:.2f} EUR'
+                log(f'{probid} sent successfully; invoice={invoice_total:.2f} EUR')
+                return probid, 'SENT', invoice_total
             else:
                 problems[probid][1] = 'FAILED VENTAS'
                 log(f'{probid} VENTAS returned error: {response_text(resp, "ERROR")}')
-                return probid, 'FAILED VENTAS'
+                return probid, 'FAILED VENTAS', 0.0
         except ConnectionError:
             problems[probid][1] = 'FAILED CONNECTION'
             log(f'{probid} connection error to VENTAS at {ventasaddr}')
-            return probid, 'FAILED CONNECTION'
+            return probid, 'FAILED CONNECTION', 0.0
         except Exception:
             problems[probid][1] = 'FAILED VENTAS RESPONSE'
             log(f'{probid} invalid response from VENTAS')
-            return probid, 'FAILED VENTAS RESPONSE'
+            return probid, 'FAILED VENTAS RESPONSE', 0.0
     # Agente de ventas no encontrado
     else:
         problems[probid] = [products, 'FAILED DS']
         log(f'{probid} VENTAS not found in directory service')
-        return probid, 'FAILED DS'
+        return probid, 'FAILED DS', 0.0
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -475,5 +665,22 @@ if __name__ == '__main__':
         diraddress = args.dir
 
     log(f'Starting at {clientadd}, directory={diraddress}')
-    # Ponemos en marcha el servidor Flask
-    app.run(host=hostname, port=port, debug=False, use_reloader=False)
+
+    register_message = build_directory_register(clientid, 'CLIENTE', clientadd, sender=clientid)
+    done = False
+    while not done:
+        try:
+            register_response = send_graph_message(diraddress, register_message)
+            done = True
+        except ConnectionError:
+            pass
+
+    if response_ok(register_response):
+        log(f'{clientid} successfully registered')
+        app.run(host=hostname, port=port, debug=False, use_reloader=False)
+
+        log(f'{clientid} unregistering')
+        unregister_message = build_directory_unregister(clientid, sender=clientid)
+        send_graph_message(diraddress, unregister_message)
+    else:
+        log('Unable to register client')
