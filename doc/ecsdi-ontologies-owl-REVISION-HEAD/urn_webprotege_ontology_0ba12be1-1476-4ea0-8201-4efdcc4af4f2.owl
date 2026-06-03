@@ -1,0 +1,878 @@
+<?xml version="1.0"?>
+<rdf:RDF xmlns="urn:webprotege:ontology:0ba12be1-1476-4ea0-8201-4efdcc4af4f2#"
+     xml:base="urn:webprotege:ontology:0ba12be1-1476-4ea0-8201-4efdcc4af4f2"
+     xmlns:dc="http://purl.org/dc/elements/1.1/"
+     xmlns:owl="http://www.w3.org/2002/07/owl#"
+     xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+     xmlns:xml="http://www.w3.org/XML/1998/namespace"
+     xmlns:xsd="http://www.w3.org/2001/XMLSchema#"
+     xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#">
+    <owl:Ontology rdf:about="urn:webprotege:ontology:0ba12be1-1476-4ea0-8201-4efdcc4af4f2"/>
+    
+
+
+    <!-- 
+    ///////////////////////////////////////////////////////////////////////////////////////
+    //
+    // Annotation properties
+    //
+    ///////////////////////////////////////////////////////////////////////////////////////
+     -->
+
+    
+
+
+    <!-- http://purl.org/dc/elements/1.1/description -->
+
+    <owl:AnnotationProperty rdf:about="http://purl.org/dc/elements/1.1/description"/>
+    
+
+
+    <!-- 
+    ///////////////////////////////////////////////////////////////////////////////////////
+    //
+    // Object Properties
+    //
+    ///////////////////////////////////////////////////////////////////////////////////////
+     -->
+
+    
+
+
+    <!-- http://webprotege.stanford.edu/R7MfNKIamTSSFyxhdO0UkCS -->
+
+    <owl:ObjectProperty rdf:about="http://webprotege.stanford.edu/R7MfNKIamTSSFyxhdO0UkCS">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topObjectProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R9mHhCp1gsqH2kraq2MTv3W"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RqqBU8hpgtxCVjPK9ySxOL"/>
+        <rdfs:range rdf:resource="http://webprotege.stanford.edu/R8jLVuHiLktpMSwwvqHEb2"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">1 - 1</rdfs:comment>
+        <rdfs:label>dirección_origen</rdfs:label>
+    </owl:ObjectProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R8j6y1iwryzfPXdQ8Ioi6Ih -->
+
+    <owl:ObjectProperty rdf:about="http://webprotege.stanford.edu/R8j6y1iwryzfPXdQ8Ioi6Ih">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topObjectProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RCMvA7uiZ4iNyCvgC0Wdojf"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RiDMPKSKGz2oWCx9yMWFxq"/>
+        <rdfs:range rdf:resource="http://webprotege.stanford.edu/R7UPqHZMRr1aO2d8axkFteu"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">1 - 1</rdfs:comment>
+        <rdfs:label>contiene_valoración</rdfs:label>
+    </owl:ObjectProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R9AVcuekMw0HPfUSMplIJVR -->
+
+    <owl:ObjectProperty rdf:about="http://webprotege.stanford.edu/R9AVcuekMw0HPfUSMplIJVR">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topObjectProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R9DlX2gxfws6EXd3lhAPPi3"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RCcJuCdwENHgEUsPFGcr8x5"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RDsxjYfHfvAWhub6HKa9Qzx"/>
+        <rdfs:range rdf:resource="http://webprotege.stanford.edu/RtsdaULfukiqYGFLJFndCT"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">1 - N</rdfs:comment>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">contiene_productos</rdfs:label>
+    </owl:ObjectProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R9vD3V6tY2IlFMZXu0h5JAF -->
+
+    <owl:ObjectProperty rdf:about="http://webprotege.stanford.edu/R9vD3V6tY2IlFMZXu0h5JAF">
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R8KOHzGaRHG8e6w8nxUgIFn"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R9PXcbDQHYHK3qi1IL2u1Pp"/>
+        <rdfs:range rdf:resource="http://webprotege.stanford.edu/RHz5d0DRrCGzH7UpZb3pIZ"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">1 - 1</rdfs:comment>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">IBAN_origen</rdfs:label>
+    </owl:ObjectProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R9vR0SAzyc5wzqQDnZwrzhm -->
+
+    <owl:ObjectProperty rdf:about="http://webprotege.stanford.edu/R9vR0SAzyc5wzqQDnZwrzhm">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topObjectProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RCDeqpwWtqHMmT6tAzFjcXF"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RDDkeDS0u32HNkxaqg1zmAW"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RDtarB7OuPVdesFKgUDpreE"/>
+        <rdfs:range rdf:resource="http://webprotege.stanford.edu/R9E7nYbv1uOW1zGiw3tiuoO"/>
+        <dc:description rdf:datatype="http://www.w3.org/2001/XMLSchema#string">de 1 a N (Domain has N Range)</dc:description>
+        <rdfs:label>contiene_lineas</rdfs:label>
+    </owl:ObjectProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RBDZrGwuPtlRK9EFBy1ePDY -->
+
+    <owl:ObjectProperty rdf:about="http://webprotege.stanford.edu/RBDZrGwuPtlRK9EFBy1ePDY">
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RtsdaULfukiqYGFLJFndCT"/>
+        <rdfs:range rdf:resource="http://webprotege.stanford.edu/RBSokswjsgZ91kWRx7ABmJ1"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">de 1 a N (Domain has N Range)</rdfs:comment>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">contiene_caracteristicas_producto</rdfs:label>
+    </owl:ObjectProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RBTI1ucKs6otxdZZrZoTIvl -->
+
+    <owl:ObjectProperty rdf:about="http://webprotege.stanford.edu/RBTI1ucKs6otxdZZrZoTIvl">
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R9DlX2gxfws6EXd3lhAPPi3"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RCcJuCdwENHgEUsPFGcr8x5"/>
+        <rdfs:range rdf:resource="http://webprotege.stanford.edu/R9E7nYbv1uOW1zGiw3tiuoO"/>
+        <dc:description rdf:datatype="http://www.w3.org/2001/XMLSchema#string">1 a 1</dc:description>
+        <rdfs:label>contiene_linea</rdfs:label>
+    </owl:ObjectProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RCTNneLzUnrhSWvyj68Y9pz -->
+
+    <owl:ObjectProperty rdf:about="http://webprotege.stanford.edu/RCTNneLzUnrhSWvyj68Y9pz">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topObjectProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R9DlX2gxfws6EXd3lhAPPi3"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R9mHhCp1gsqH2kraq2MTv3W"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RCcJuCdwENHgEUsPFGcr8x5"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RqqBU8hpgtxCVjPK9ySxOL"/>
+        <rdfs:range rdf:resource="http://webprotege.stanford.edu/R8jLVuHiLktpMSwwvqHEb2"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">1 - 1</rdfs:comment>
+        <rdfs:label>dirección_destino</rdfs:label>
+    </owl:ObjectProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RCfz60mgRXEzOJiFGky3Pj6 -->
+
+    <owl:ObjectProperty rdf:about="http://webprotege.stanford.edu/RCfz60mgRXEzOJiFGky3Pj6">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topObjectProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R8PAVppKmHrbSn3Zbqr05Jc"/>
+        <rdfs:range rdf:resource="http://webprotege.stanford.edu/RDtarB7OuPVdesFKgUDpreE"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">1 - 1</rdfs:comment>
+        <rdfs:label>contiene_factura</rdfs:label>
+    </owl:ObjectProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RgZuYKvrBLmbEtCXd9CO2F -->
+
+    <owl:ObjectProperty rdf:about="http://webprotege.stanford.edu/RgZuYKvrBLmbEtCXd9CO2F">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topObjectProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R8IYfAv5WR1EMExpUgA4U29"/>
+        <rdfs:range rdf:resource="http://webprotege.stanford.edu/RCDeqpwWtqHMmT6tAzFjcXF"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">1 - 1</rdfs:comment>
+        <rdfs:label>compra_realizada</rdfs:label>
+    </owl:ObjectProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/Rh3YYxtUo4uEtPJmWf03mj -->
+
+    <owl:ObjectProperty rdf:about="http://webprotege.stanford.edu/Rh3YYxtUo4uEtPJmWf03mj">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topObjectProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R88x11efoYKfu0tAk1epmV"/>
+        <rdfs:range rdf:resource="http://webprotege.stanford.edu/RtsdaULfukiqYGFLJFndCT"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">1 - 1</rdfs:comment>
+        <rdfs:label>contiene_producto</rdfs:label>
+    </owl:ObjectProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RvwR4UkxD55OVCSByJG6Lj -->
+
+    <owl:ObjectProperty rdf:about="http://webprotege.stanford.edu/RvwR4UkxD55OVCSByJG6Lj">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topObjectProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R8KOHzGaRHG8e6w8nxUgIFn"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R9PXcbDQHYHK3qi1IL2u1Pp"/>
+        <rdfs:range rdf:resource="http://webprotege.stanford.edu/RHz5d0DRrCGzH7UpZb3pIZ"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">1 - 1</rdfs:comment>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">IBAN_destino</rdfs:label>
+    </owl:ObjectProperty>
+    
+
+
+    <!-- 
+    ///////////////////////////////////////////////////////////////////////////////////////
+    //
+    // Data properties
+    //
+    ///////////////////////////////////////////////////////////////////////////////////////
+     -->
+
+    
+
+
+    <!-- http://webprotege.stanford.edu/R7rXjXUq1NV7Y0Ort6kLbjA -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/R7rXjXUq1NV7Y0Ort6kLbjA">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R9E7nYbv1uOW1zGiw3tiuoO"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RBSokswjsgZ91kWRx7ABmJ1"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RtsdaULfukiqYGFLJFndCT"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#float"/>
+        <rdfs:label>nombreProducto</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R8FpDSDRg1Hp7OI0dc56hZy -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/R8FpDSDRg1Hp7OI0dc56hZy">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R7UPqHZMRr1aO2d8axkFteu"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#float"/>
+        <rdfs:label>valoracionProducto</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R8fJ6PfOWi50fpNJR5wexDy -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/R8fJ6PfOWi50fpNJR5wexDy">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R88x11efoYKfu0tAk1epmV"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RCMvA7uiZ4iNyCvgC0Wdojf"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RDOLzXcgzIYrfXwCMyIxTjx"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RiDMPKSKGz2oWCx9yMWFxq"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+        <rdfs:label>mensajePersonalizado</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R8gUf03ss6ZojSLQCFyFFOj -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/R8gUf03ss6ZojSLQCFyFFOj">
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RBSokswjsgZ91kWRx7ABmJ1"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#float"/>
+        <rdfs:label>precioProductoMaximo</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R8keG03cfpmHRrBuBlGihZP -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/R8keG03cfpmHRrBuBlGihZP">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RCDeqpwWtqHMmT6tAzFjcXF"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+        <rdfs:label>idCompra</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R8rVK6DuReO3bbWpf8SoXQM -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/R8rVK6DuReO3bbWpf8SoXQM">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R8IdxU0ev6GUu8ofQETwaXO"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R8KCrM7ZMuSnKzTeHlPwCyH"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R9DlX2gxfws6EXd3lhAPPi3"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RBUZQgdsU4ADf8y15NL2J1N"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RDDkeDS0u32HNkxaqg1zmAW"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RqqBU8hpgtxCVjPK9ySxOL"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#dateTime"/>
+        <rdfs:label>fechaEntrega</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R942dNbP608WBsOm3sqejQa -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/R942dNbP608WBsOm3sqejQa">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RBUZQgdsU4ADf8y15NL2J1N"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Atributo con valor &quot;aceptada&quot;, &quot;denegada&quot;, &quot;contraoferta&quot;</rdfs:comment>
+        <rdfs:label>decisiónContraOferta</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R9FEZTzAswZ76VJl5SwBRgS -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/R9FEZTzAswZ76VJl5SwBRgS">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R7UPqHZMRr1aO2d8axkFteu"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R9E7nYbv1uOW1zGiw3tiuoO"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RtsdaULfukiqYGFLJFndCT"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+        <rdfs:label>idProducto</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R9jxBd359a62b4ue2mptKvl -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/R9jxBd359a62b4ue2mptKvl">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RBSokswjsgZ91kWRx7ABmJ1"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+        <rdfs:label>nombreMarca</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RBLZbED29xtEJouWh0Vplbq -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RBLZbED29xtEJouWh0Vplbq">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R8IYfAv5WR1EMExpUgA4U29"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RBzHsQC9SjDDzLTJN7mC2iC"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RDslZy31Vjfc3PxnTYUj3xR"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+        <rdfs:label>idCliente</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RBMaQXcePWm9EafXEyl3UNM -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RBMaQXcePWm9EafXEyl3UNM">
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R8IdxU0ev6GUu8ofQETwaXO"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RBzHsQC9SjDDzLTJN7mC2iC"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+        <rdfs:label>direccion</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RBSMfrhheeYT5fu7X0mrpyv -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RBSMfrhheeYT5fu7X0mrpyv">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R9E7nYbv1uOW1zGiw3tiuoO"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#float"/>
+        <rdfs:label>precioLineaComanda</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RBYt4BIRqKkJvGLrworh0EW -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RBYt4BIRqKkJvGLrworh0EW">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RDOLzXcgzIYrfXwCMyIxTjx"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#boolean"/>
+        <rdfs:label>éxitoNuevoProducto</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RBiK2vLaedABKjoLpOJSCZe -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RBiK2vLaedABKjoLpOJSCZe">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RbS3chrRbIyVt8RIO0PqOO"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+        <rdfs:label>tipoTransferencia</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RCEDJIJ7u6OgpGGStyLL9cX -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RCEDJIJ7u6OgpGGStyLL9cX">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RDtarB7OuPVdesFKgUDpreE"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#float"/>
+        <rdfs:label>precioTotalFactura</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RCQF9xFxGyO5h1tJAeeW4AM -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RCQF9xFxGyO5h1tJAeeW4AM">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R9E7nYbv1uOW1zGiw3tiuoO"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#integer"/>
+        <rdfs:label>cantidadProducto</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RDC6ifKHknlgHa0aay42b77 -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RDC6ifKHknlgHa0aay42b77">
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RBSokswjsgZ91kWRx7ABmJ1"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#float"/>
+        <rdfs:label>precioProductoMinimo</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RDCw0LEqQFbFkJJnxA9mWSw -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RDCw0LEqQFbFkJJnxA9mWSw">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RDsxjYfHfvAWhub6HKa9Qzx"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/Rse1PXn1jqwdOM9fJejLz3"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+        <rdfs:label>nombreProveedor</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RDffk1oW4ifqDHSrv65SSjQ -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RDffk1oW4ifqDHSrv65SSjQ">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RbS3chrRbIyVt8RIO0PqOO"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+        <rdfs:label>participanteTransferencia</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RDpodQemZXmMCmgGp7hOHDz -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RDpodQemZXmMCmgGp7hOHDz">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R9mHhCp1gsqH2kraq2MTv3W"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RqqBU8hpgtxCVjPK9ySxOL"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#float"/>
+        <rdfs:label>pesoLote</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RF4fUtXxKO8wtME6qKgJZ8 -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RF4fUtXxKO8wtME6qKgJZ8">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R9PXcbDQHYHK3qi1IL2u1Pp"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#boolean"/>
+        <rdfs:label>éxitoTransferencia</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RKenigRUmiLGkpsBREGqyB -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RKenigRUmiLGkpsBREGqyB">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R7TpcJifPNZoaw6vJm6nUzO"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R8KCrM7ZMuSnKzTeHlPwCyH"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RBUZQgdsU4ADf8y15NL2J1N"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#float"/>
+        <rdfs:label>precioOfertaTransporte</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RgAdjLNh6SINmzYy6IuS70 -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RgAdjLNh6SINmzYy6IuS70">
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RBSokswjsgZ91kWRx7ABmJ1"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">caracteristicaProducto</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RpXzRvFXuuoYhDMRsZL5qz -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RpXzRvFXuuoYhDMRsZL5qz">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RDslZy31Vjfc3PxnTYUj3xR"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RHz5d0DRrCGzH7UpZb3pIZ"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RbS3chrRbIyVt8RIO0PqOO"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/Rse1PXn1jqwdOM9fJejLz3"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">numeroIBAN</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RvAZXlEZb79w2DCN8oaMHl -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RvAZXlEZb79w2DCN8oaMHl">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R8IdxU0ev6GUu8ofQETwaXO"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+        <rdfs:label>nombreTransportista</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RxAFAx9SJBk96a0XUktMm6 -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RxAFAx9SJBk96a0XUktMm6">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R8KOHzGaRHG8e6w8nxUgIFn"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/R9PXcbDQHYHK3qi1IL2u1Pp"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RbS3chrRbIyVt8RIO0PqOO"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#float"/>
+        <rdfs:label>cantidadTransferencia</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RxV7f7DBp6V3ADeSbZr4LS -->
+
+    <owl:DatatypeProperty rdf:about="http://webprotege.stanford.edu/RxV7f7DBp6V3ADeSbZr4LS">
+        <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2002/07/owl#topDataProperty"/>
+        <rdfs:domain rdf:resource="http://webprotege.stanford.edu/RtsdaULfukiqYGFLJFndCT"/>
+        <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#float"/>
+        <rdfs:label>precioProducto</rdfs:label>
+    </owl:DatatypeProperty>
+    
+
+
+    <!-- 
+    ///////////////////////////////////////////////////////////////////////////////////////
+    //
+    // Classes
+    //
+    ///////////////////////////////////////////////////////////////////////////////////////
+     -->
+
+    
+
+
+    <!-- http://webprotege.stanford.edu/R7TpcJifPNZoaw6vJm6nUzO -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/R7TpcJifPNZoaw6vJm6nUzO">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la contraoferta enviada por el centro logístico a un transportista solicitando un precio más bajo para el envío.</rdfs:comment>
+        <rdfs:label>PeticionContraOfertaLote</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R7UPqHZMRr1aO2d8axkFteu -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/R7UPqHZMRr1aO2d8axkFteu">
+        <rdfs:subClassOf rdf:resource="http://www.w3.org/2002/07/owl#Thing"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">clase que representa un producto, extendido con su puntuación otorgada por valoraciones</rdfs:comment>
+        <rdfs:label>ValoracionProducto</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R7g9uR0TQZ16WcgG0n8v5o -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/R7g9uR0TQZ16WcgG0n8v5o">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la petición mandada por el agente Catalogo al agente Tesorero para añadir o actualizar los datos bancarios de un proveedor</rdfs:comment>
+        <rdfs:label>PeticionAñadirProveedor</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R88x11efoYKfu0tAk1epmV -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/R88x11efoYKfu0tAk1epmV">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la acción mandada al cliente para pedirle valoración sobre un producto ya comprado.</rdfs:comment>
+        <rdfs:label>PeticiónFeedbackCliente</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R8IYfAv5WR1EMExpUgA4U29 -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/R8IYfAv5WR1EMExpUgA4U29">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa el mensaje enviado por parte del tesorero al agente de ventas comunicándole que una compra ha sido efectuada y que hay que guardar la compra com realizada.</rdfs:comment>
+        <rdfs:label>PeticionGuardarCompraRealizada</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R8IdxU0ev6GUu8ofQETwaXO -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/R8IdxU0ev6GUu8ofQETwaXO">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la acción mandada al cliente por parte del agente tesorero que contiene los datos del envio</rdfs:comment>
+        <rdfs:label>EnvioDatosEnvio</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R8KCrM7ZMuSnKzTeHlPwCyH -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/R8KCrM7ZMuSnKzTeHlPwCyH">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RCDANbVpZZ6pALCfEamuD0h"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa el presupuesto para el envío de un lote enviado por un transportista al agente logístico</rdfs:comment>
+        <rdfs:label>RespuestaSolicitudPresupuesto</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R8KOHzGaRHG8e6w8nxUgIFn -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/R8KOHzGaRHG8e6w8nxUgIFn">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la acción mandada por parte del tesorero a la entidad bancaria solicitando la tranferencia entre dos entidades.</rdfs:comment>
+        <rdfs:label>PeticiónBancariaDeTransferencia</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R8PAVppKmHrbSn3Zbqr05Jc -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/R8PAVppKmHrbSn3Zbqr05Jc">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RCDANbVpZZ6pALCfEamuD0h"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la la respuesta (Factura) del agente Ventas para el Actor cliente - (Acción Enviar la factura)</rdfs:comment>
+        <rdfs:label>ResultadoCompra</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R8jLVuHiLktpMSwwvqHEb2 -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/R8jLVuHiLktpMSwwvqHEb2">
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa una dirección de entrega, o de un centro logistico para poder informar al transportista.</rdfs:comment>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Dirección</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R9DlX2gxfws6EXd3lhAPPi3 -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/R9DlX2gxfws6EXd3lhAPPi3">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la petición mandada por el agente Ventas hacia un centro logistico para asignar una cantidad de un producto comprado en los lotes pendientes de envio</rdfs:comment>
+        <rdfs:label>PeticionAsignarLoteProducto</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R9E7nYbv1uOW1zGiw3tiuoO -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/R9E7nYbv1uOW1zGiw3tiuoO">
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa una linea (articulo comprado, cantidad, precio) de una comanda</rdfs:comment>
+        <rdfs:label>LineaComanda</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R9PXcbDQHYHK3qi1IL2u1Pp -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/R9PXcbDQHYHK3qi1IL2u1Pp">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RCDANbVpZZ6pALCfEamuD0h"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la confirmación enviada por parte de la entidad bancaria al tesorero de una transferencia solicitada anteriormente.</rdfs:comment>
+        <rdfs:label>RespuestaBancariaTransferencia</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R9mHhCp1gsqH2kraq2MTv3W -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/R9mHhCp1gsqH2kraq2MTv3W">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la petición enviada por el agente logístico a un transportista para aceptar la oferta de un envío de lote.</rdfs:comment>
+        <rdfs:label>PeticionAceptarOfertaLote</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/R9yArL3N9CE7xasPkJmDZxP -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/R9yArL3N9CE7xasPkJmDZxP">
+        <rdfs:subClassOf rdf:resource="http://www.w3.org/2002/07/owl#Thing"/>
+        <rdfs:label>Comunicacion</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RBSokswjsgZ91kWRx7ABmJ1 -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RBSokswjsgZ91kWRx7ABmJ1">
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Representa una de las características asociadas a un producto, como información descriptiva o propiedades relevantes para su clasificación y búsqueda.</rdfs:comment>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Caracteristica producto</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RBUZQgdsU4ADf8y15NL2J1N -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RBUZQgdsU4ADf8y15NL2J1N">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RCDANbVpZZ6pALCfEamuD0h"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la respuesta a la contraoferta por parte de un transportista al agente logístico</rdfs:comment>
+        <rdfs:label>RespuestaContraOferta</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RBzHsQC9SjDDzLTJN7mC2iC -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RBzHsQC9SjDDzLTJN7mC2iC">
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Representa al usuario comprador del sistema. Puede realizar compras, recibir recomendaciones y generar valoraciones sobre productos.</rdfs:comment>
+        <rdfs:label>Cliente</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RCDANbVpZZ6pALCfEamuD0h -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RCDANbVpZZ6pALCfEamuD0h">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/R9yArL3N9CE7xasPkJmDZxP"/>
+        <rdfs:label>Respuesta</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RCDeqpwWtqHMmT6tAzFjcXF -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RCDeqpwWtqHMmT6tAzFjcXF">
+        <rdfs:subClassOf rdf:resource="http://www.w3.org/2002/07/owl#Thing"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa una compra efectuada por un cliente</rdfs:comment>
+        <rdfs:label>Compra</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RCMvA7uiZ4iNyCvgC0Wdojf -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RCMvA7uiZ4iNyCvgC0Wdojf">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RCDANbVpZZ6pALCfEamuD0h"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que represnta el feedback enviado por parte del cliente al agente valorador puntuando un producto que ha comprado (comentario opcional)</rdfs:comment>
+        <rdfs:label>RespuestaFeedbackCliente</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RCcJuCdwENHgEUsPFGcr8x5 -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RCcJuCdwENHgEUsPFGcr8x5">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la petición mandada por el agente Ventas al actor Empresa Venedora para delegar el envio de uno de sus productos</rdfs:comment>
+        <rdfs:label>PeticionNuevaVentaExterna</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RDDkeDS0u32HNkxaqg1zmAW -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RDDkeDS0u32HNkxaqg1zmAW">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la petición de compra mandada por el agente asistente del usuario al agente vendedor - Percepción de Ventas (Cliente realiza compra)</rdfs:comment>
+        <rdfs:label>PeticionCompra</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/R9yArL3N9CE7xasPkJmDZxP"/>
+        <rdfs:label>Acción</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RDOLzXcgzIYrfXwCMyIxTjx -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RDOLzXcgzIYrfXwCMyIxTjx">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RCDANbVpZZ6pALCfEamuD0h"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la respuesta mandada por el agente Ventas al Actor Empresa Venedora que informa de la resolucion de su solicitud</rdfs:comment>
+        <rdfs:label>RespuestaNuevoProducto</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RDslZy31Vjfc3PxnTYUj3xR -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RDslZy31Vjfc3PxnTYUj3xR">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la petición mandada por el agente Ventas al Tesorero para guardar los datos de facturacion de un Cliente</rdfs:comment>
+        <rdfs:label>PeticionGuardarDatosFacturacionClientes</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RDsxjYfHfvAWhub6HKa9Qzx -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RDsxjYfHfvAWhub6HKa9Qzx">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la petición mandada por el actor Empresa Venedora a Catalogo para que añada un producto (datos de producto y datos del proveedor)</rdfs:comment>
+        <rdfs:label>PeticionNuevoProducto</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RDtarB7OuPVdesFKgUDpreE -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RDtarB7OuPVdesFKgUDpreE">
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la factura respuesta del sistema al cliente cuando este efectua una compra.</rdfs:comment>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">FacturaCompra</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RHz5d0DRrCGzH7UpZb3pIZ -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RHz5d0DRrCGzH7UpZb3pIZ">
+        <rdfs:subClassOf rdf:resource="http://www.w3.org/2002/07/owl#Thing"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa el IBAN de una entidad, o el del propio sistema, con el fin de poder cobrarles o pagarles</rdfs:comment>
+        <rdfs:label>IBAN</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RbS3chrRbIyVt8RIO0PqOO -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RbS3chrRbIyVt8RIO0PqOO">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la solicitud de una transferencia entre dos entidades, enviada por Ventas y Agente Logístico para realizar cobros y pagos. Contiene un campo que indica si es una devolución al cliente, un pago a vendedor externo o un cobro al cliente.</rdfs:comment>
+        <rdfs:label>PeticionSolicitarTransferencia</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RiDMPKSKGz2oWCx9yMWFxq -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RiDMPKSKGz2oWCx9yMWFxq">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa el mensaje enviado por parte del valorador al cliente conteniendo productos que pueden ser de su interés</rdfs:comment>
+        <rdfs:label>EnvioSugerenciaProductoACliente</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RqqBU8hpgtxCVjPK9ySxOL -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RqqBU8hpgtxCVjPK9ySxOL">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la petición enviada por el agente logístico a un transportista para obtener el presupuesto de el envio de un lote, dadas sus características.</rdfs:comment>
+        <rdfs:label>PeticionPresupuestoEnvioLote</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/Rse1PXn1jqwdOM9fJejLz3 -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/Rse1PXn1jqwdOM9fJejLz3">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa la petición mandada por el catalogador para registrar los datos bancarios de un proveedor externo.</rdfs:comment>
+        <rdfs:label>PeticionGuardarDatosBancariosProveedor</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/RtsdaULfukiqYGFLJFndCT -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/RtsdaULfukiqYGFLJFndCT">
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Esta clase respresenta un producto del Catalogo de nuestra tienda</rdfs:comment>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">ProductoCatalogo</rdfs:label>
+    </owl:Class>
+    
+
+
+    <!-- http://webprotege.stanford.edu/Ry1Fwq6lokNYbuiqjLCwRv -->
+
+    <owl:Class rdf:about="http://webprotege.stanford.edu/Ry1Fwq6lokNYbuiqjLCwRv">
+        <rdfs:subClassOf rdf:resource="http://webprotege.stanford.edu/RDIueWTBADRnJBP8eXj1Mhy"/>
+        <rdfs:comment rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clase que representa el mensaje &quot;Asignale-un-lote-a-este-producto&quot; del agente ventas hacia Agente logístico</rdfs:comment>
+        <rdfs:label>PeticiónAsignarLote</rdfs:label>
+    </owl:Class>
+</rdf:RDF>
+
+
+
+<!-- Generated by the OWL API (version 4.5.13) https://github.com/owlcs/owlapi -->
+
