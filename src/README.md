@@ -11,6 +11,7 @@ A multi-agent system built with Flask where each agent runs as an independent HT
 | `Client` | 9010 | Web UI – search products, place orders |
 | `Catalogador` | 9040 | Product catalogue search and filtering |
 | `Valorador` | 9050 | Product ratings and reviews |
+| `Tesorero` | 9060 | Client billing, refunds and external provider payments |
 | `Ventas` | 9020 | Order/sales management |
 | `CentroLogistico` (×4) | 9030–9033 | Logistics centres – stock and delivery |
 
@@ -27,6 +28,7 @@ python DirectoryService.py --port 9000 --hostaddr 192.168.1.10 --open
 # On each agent host – replace DIR_URL and HOSTADDR accordingly
 python Catalogador.py --port 9040 --dir http://192.168.1.10:9000 --hostaddr 192.168.1.XX --open
 python Valorador.py   --port 9050 --dir http://192.168.1.10:9000 --hostaddr 192.168.1.XX --open
+python Tesorero.py    --port 9060 --dir http://192.168.1.10:9000 --hostaddr 192.168.1.XX --open
 python Ventas.py      --port 9020 --dir http://192.168.1.10:9000 --hostaddr 192.168.1.XX --open
 python CentroLogistico.py --port 9030 --dir http://192.168.1.10:9000 --hostaddr 192.168.1.XX --open
 python Client.py      --port 9010 --dir http://192.168.1.10:9000 --hostaddr 192.168.1.XX --open
@@ -43,7 +45,7 @@ cd src/
 bash develop.sh
 ```
 
-This starts all agents (DirectoryService, Logger, Client, Catalogador, Valorador, Ventas, and 4 CentroLogistico instances) as background processes. Press any key to stop them all cleanly.
+This starts all agents (DirectoryService, Logger, Client, Catalogador, Valorador, Tesorero, Ventas, and 4 CentroLogistico instances) as background processes. Press any key to stop them all cleanly.
 
 The script auto-detects the Python interpreter in `env/`, `.venv/`, or falls back to the system `python`/`python3`.
 
@@ -67,6 +69,7 @@ src/
 ├── Client.py             # End-user web interface
 ├── Catalogador.py        # Product search agent
 ├── Valorador.py          # Ratings agent
+├── Tesorero.py           # Financial agent
 ├── Ventas.py             # Sales/order agent
 ├── CentroLogistico.py    # Logistics centre agent (multiple instances)
 ├── FlaskServer.py        # Shared Flask utilities

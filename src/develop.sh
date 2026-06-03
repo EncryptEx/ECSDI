@@ -4,6 +4,7 @@
 # - a directory service,
 # - 1 catalogador agent,
 # - 1 valorador agent,
+# - 1 tesorero agent,
 # - 4 logistics centers,
 # - 1 venta agent, and
 # - 1 cliente agent.
@@ -77,6 +78,7 @@ start_agent "Logger"             "$PYTHON" Logger.py             --port 9100  --
 start_agent "Client"             "$PYTHON" Client.py             --port 9010  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
 start_agent "Catalogador"        "$PYTHON" Catalogador.py        --port 9040  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
 start_agent "Valorador"          "$PYTHON" Valorador.py          --port 9050  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
+start_agent "Tesorero"           "$PYTHON" Tesorero.py           --port 9060  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
 start_agent "Ventas"             "$PYTHON" Ventas.py             --port 9020  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
 start_agent "CentroLogistico0"   "$PYTHON" CentroLogistico.py   --port 9030  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
 start_agent "CentroLogistico1"   "$PYTHON" CentroLogistico.py   --port 9031  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"

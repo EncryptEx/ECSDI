@@ -34,6 +34,7 @@ from AgentCommunication import (
     build_directory_unregister,
     build_ratings_response,
     build_status_response,
+    feedback_from_request,
     get_message_properties,
     has_type,
     message_conversation,
@@ -65,9 +66,29 @@ RATINGS = {
     'P1008': 4.8
 }
 
+RATING_EVENTS = {
+    product_id: [rating]
+    for product_id, rating in RATINGS.items()
+}
+
 
 def get_ratings(product_ids):
     return {pid: float(RATINGS.get(pid, 3.5)) for pid in product_ids}
+
+
+def save_feedback(graph, content):
+    feedback = feedback_from_request(graph, content)
+    product_id = feedback['product_id']
+    rating = float(feedback['rating'])
+    if not product_id:
+        return False, 'PRODUCTO INVALIDO'
+    if rating < 0.0 or rating > 5.0:
+        return False, 'VALORACION INVALIDA'
+    values = RATING_EVENTS.setdefault(product_id, [])
+    values.append(rating)
+    RATINGS[product_id] = sum(values) / len(values)
+    log(f'Feedback recibido producto={product_id} rating={rating:.2f}')
+    return True, 'FEEDBACK GUARDADO'
 
 
 @app.route('/message')
@@ -83,7 +104,30 @@ def message():
         response = build_status_response(log_prefix, 'unknown', ok=False, text='INVALID RDF/FIPA MESSAGE')
         return serialize_graph(response)
 
-    if props['performative'] != ACL.request or not has_type(graph, content, ECSDI.PeticionValoracionesProducto):
+    allowed_performatives = {ACL.request, ACL['query-ref'], ACL.inform}
+    if props['performative'] not in allowed_performatives:
+        log('Unknown request type')
+        response = build_status_response(
+            log_prefix,
+            sender,
+            ok=False,
+            text='INVALID PERFORMATIVE',
+            conversation_id=conversation_id
+        )
+        return serialize_graph(response)
+
+    if has_type(graph, content, ECSDI.RespuestaFeedbackCliente):
+        ok, text = save_feedback(graph, content)
+        response = build_status_response(
+            log_prefix,
+            sender,
+            ok=ok,
+            text=text,
+            conversation_id=conversation_id
+        )
+        return serialize_graph(response)
+
+    if not has_type(graph, content, ECSDI.PeticionValoracionesProducto):
         log('Unknown request type')
         response = build_status_response(
             log_prefix,

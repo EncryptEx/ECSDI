@@ -82,10 +82,12 @@ def build_acl_message(graph, performative, sender, receiver, content, conversati
 
 
 def build_message_with_content(content_type, performative=ACL.request, sender=DEFAULT_AGENT,
-                               receiver=DEFAULT_AGENT, conversation_id=None):
+                               receiver=DEFAULT_AGENT, conversation_id=None, message_name=None):
     graph = new_graph()
     content = _uri(ECSDI, str(content_type).split('#')[-1])
     graph.add((content, RDF.type, _content_type_uri(content_type)))
+    if message_name:
+        graph.add((content, ECSDI.nombreMensaje, Literal(message_name)))
     build_acl_message(graph, performative, sender, receiver, content, conversation_id)
     return graph, content
 
@@ -119,6 +121,10 @@ def message_sender(props):
 def message_conversation(props):
     conversation = props.get('conversation_id')
     return str(conversation) if conversation is not None else None
+
+
+def content_message_name(graph, content):
+    return first_literal(graph, content, ECSDI.nombreMensaje, '')
 
 
 def has_type(graph, node, rdf_type):
@@ -259,6 +265,7 @@ def add_product(graph, product, subject=None):
     name = str(product.get('name') or product.get('nombreProducto') or '').strip()
     subject = subject or _uri(ECSDI, f'Producto_{pid or name or "anon"}')
 
+    graph.add((subject, RDF.type, ECSDI.ProductoCatalogo))
     graph.add((subject, RDF.type, ECSDI.Producto))
     if pid:
         graph.add((subject, ECSDI.idProducto, Literal(pid)))
@@ -268,10 +275,14 @@ def add_product(graph, product, subject=None):
         graph.add((subject, ECSDI.nombreMarca, Literal(product.get('brand') or product.get('nombreMarca'))))
     if product.get('seller') or product.get('vendedorProducto'):
         graph.add((subject, ECSDI.vendedorProducto, Literal(product.get('seller') or product.get('vendedorProducto'))))
+    if product.get('provider') or product.get('nombreProveedor'):
+        graph.add((subject, ECSDI.nombreProveedor, Literal(product.get('provider') or product.get('nombreProveedor'))))
     if product.get('price') is not None:
         graph.add((subject, ECSDI.precioProducto, Literal(float(product.get('price')), datatype=XSD.float)))
     if product.get('rating') is not None:
         graph.add((subject, ECSDI.valoracionProducto, Literal(float(product.get('rating')), datatype=XSD.float)))
+    if product.get('external') is not None:
+        graph.add((subject, ECSDI.esExterno, Literal(bool(product.get('external')), datatype=XSD.boolean)))
 
     tags = product.get('tags') or product.get('caracteristicasProducto') or []
     if isinstance(tags, str):
@@ -288,8 +299,10 @@ def product_from_graph(graph, subject):
     name = first_literal(graph, subject, ECSDI.nombreProducto)
     brand = first_literal(graph, subject, ECSDI.nombreMarca)
     seller = first_literal(graph, subject, ECSDI.vendedorProducto)
+    provider = first_literal(graph, subject, ECSDI.nombreProveedor)
     price = first_float(graph, subject, ECSDI.precioProducto)
     rating = first_float(graph, subject, ECSDI.valoracionProducto)
+    external = graph.value(subject, ECSDI.esExterno)
     tags = literal_values(graph, subject, ECSDI.caracteristicasProducto)
 
     if pid is not None:
@@ -300,17 +313,27 @@ def product_from_graph(graph, subject):
         product['brand'] = brand
     if seller is not None:
         product['seller'] = seller
+    if provider is not None:
+        product['provider'] = provider
     if price is not None:
         product['price'] = price
     if tags:
         product['tags'] = tags
     if rating is not None:
         product['rating'] = rating
+    if external is not None:
+        product['external'] = bool(external.toPython()) if hasattr(external, 'toPython') else str(external).lower() == 'true'
     return product
 
 
 def build_search_request(filters, sender, receiver):
-    graph, content = build_message_with_content(ECSDI.PeticionCerca, sender=sender, receiver=receiver)
+    graph, content = build_message_with_content(
+        ECSDI.PeticionCerca,
+        performative=ACL['query-ref'],
+        sender=sender,
+        receiver=receiver,
+        message_name='lista-restricciones'
+    )
 
     if filters.get('name'):
         graph.add((content, ECSDI.nombreProducto, Literal(filters['name'])))
@@ -361,7 +384,13 @@ def products_from_search_response(graph):
 
 
 def build_ratings_request(product_ids, sender, receiver):
-    graph, content = build_message_with_content(ECSDI.PeticionValoracionesProducto, sender=sender, receiver=receiver)
+    graph, content = build_message_with_content(
+        ECSDI.PeticionValoracionesProducto,
+        performative=ACL['query-ref'],
+        sender=sender,
+        receiver=receiver,
+        message_name='obtener-valoraciones'
+    )
     for product_id in product_ids:
         product_node = add_product(graph, {'id': product_id})
         graph.add((content, ECSDI.contiene_productos, product_node))
@@ -405,21 +434,35 @@ def ratings_from_response(graph):
     return ratings
 
 
-def _add_line(graph, compra_node, product_name, quantity):
+def _add_line(graph, compra_node, product_name, quantity, price=None):
     line = _uri(ECSDI, 'LineaComanda')
-    product = add_product(graph, {'name': product_name})
+    product_data = dict(product_name) if isinstance(product_name, dict) else {'name': product_name}
+    product = add_product(graph, product_data)
     graph.add((line, RDF.type, ECSDI.LineaComanda))
     graph.add((line, ECSDI.cantidadProducto, Literal(int(quantity), datatype=XSD.int)))
+    line_price = price if price is not None else product_data.get('price')
+    if line_price is not None:
+        graph.add((line, ECSDI.precioLineaComanda, Literal(float(line_price), datatype=XSD.float)))
     graph.add((line, ECSDI.contiene_productos, product))
     graph.add((compra_node, ECSDI.contiene_lineas, line))
     return line
 
 
-def build_purchase_request(products, delivery_address, sender, receiver):
-    graph, content = build_message_with_content(ECSDI.PeticionCompra, sender=sender, receiver=receiver)
+def build_purchase_request(products, delivery_address, sender, receiver, client_id=None, client_iban=None):
+    graph, content = build_message_with_content(
+        ECSDI.PeticionCompra,
+        sender=sender,
+        receiver=receiver,
+        message_name='quiero-comprar'
+    )
     compra = _uri(ECSDI, 'Compra')
     graph.add((compra, RDF.type, ECSDI.Compra))
     graph.add((content, ECSDI.contiene_compra, compra))
+    graph.add((compra, ECSDI.idCompra, Literal(str(uuid4()))))
+    if client_id:
+        graph.add((compra, ECSDI.idCliente, Literal(client_id)))
+    if client_iban:
+        graph.add((compra, ECSDI.numeroIBAN, Literal(client_iban)))
     if delivery_address:
         graph.add((compra, ECSDI.direccion, Literal(delivery_address)))
     for product_name, quantity in products.items():
@@ -427,11 +470,24 @@ def build_purchase_request(products, delivery_address, sender, receiver):
     return graph
 
 
-def build_line_request(content_type, products, sender, receiver):
-    graph, content = build_message_with_content(content_type, sender=sender, receiver=receiver)
+def build_line_request(content_type, products, sender, receiver, performative=ACL.request,
+                       message_name=None, delivery_address=None, purchase_id=None, client_id=None):
+    graph, content = build_message_with_content(
+        content_type,
+        performative=performative,
+        sender=sender,
+        receiver=receiver,
+        message_name=message_name
+    )
     compra = _uri(ECSDI, 'Compra')
     graph.add((compra, RDF.type, ECSDI.Compra))
     graph.add((content, ECSDI.contiene_compra, compra))
+    if purchase_id:
+        graph.add((compra, ECSDI.idCompra, Literal(purchase_id)))
+    if client_id:
+        graph.add((compra, ECSDI.idCliente, Literal(client_id)))
+    if delivery_address:
+        graph.add((compra, ECSDI.direccion, Literal(delivery_address)))
     for product_name, quantity in products.items():
         _add_line(graph, compra, product_name, quantity)
     return graph
@@ -453,6 +509,46 @@ def products_from_line_request(graph, content):
         if key:
             products[key] = quantity
     return products
+
+
+def line_items_from_content(graph, content):
+    compra = graph.value(content, ECSDI.contiene_compra)
+    if compra is None:
+        return []
+    items = []
+    for line in graph.objects(compra, ECSDI.contiene_lineas):
+        quantity = first_int(graph, line, ECSDI.cantidadProducto, 0)
+        price = first_float(graph, line, ECSDI.precioLineaComanda)
+        product_node = graph.value(line, ECSDI.contiene_productos)
+        if product_node is None:
+            continue
+        product = product_from_graph(graph, product_node)
+        product['quantity'] = quantity
+        if price is not None:
+            product['line_price'] = price
+        items.append(product)
+    return items
+
+
+def purchase_from_content(graph, content):
+    compra = graph.value(content, ECSDI.contiene_compra)
+    purchase = {
+        'id': '',
+        'client_id': first_literal(graph, content, ECSDI.idCliente, ''),
+        'client_iban': first_literal(graph, content, ECSDI.numeroIBAN, ''),
+        'delivery_address': first_literal(graph, content, ECSDI.direccion, ''),
+        'items': []
+    }
+    if compra is None:
+        return purchase
+    purchase.update({
+        'id': first_literal(graph, compra, ECSDI.idCompra, ''),
+        'client_id': first_literal(graph, compra, ECSDI.idCliente, purchase['client_id']),
+        'client_iban': first_literal(graph, compra, ECSDI.numeroIBAN, purchase['client_iban']),
+        'delivery_address': first_literal(graph, compra, ECSDI.direccion, purchase['delivery_address']),
+        'items': line_items_from_content(graph, content)
+    })
+    return purchase
 
 
 def delivery_address_from_purchase(graph, content):
@@ -517,4 +613,276 @@ def build_purchase_result(ok, sender, receiver, conversation_id=None, total=0.0)
     graph.add((factura, ECSDI.precioTotalFactura, Literal(float(total), datatype=XSD.float)))
     graph.add((content, ECSDI.contiene_factura, factura))
     graph.add((content, ECSDI.existe, Literal(bool(ok), datatype=XSD.boolean)))
+    return graph
+
+
+def build_product_info_request(products, sender, receiver):
+    return build_line_request(
+        ECSDI.PeticionInfoProductosComprados,
+        products,
+        sender=sender,
+        receiver=receiver,
+        performative=ACL['query-ref'],
+        message_name='conjunto-productos-comprados'
+    )
+
+
+def build_product_info_response(products, sender, receiver, conversation_id=None):
+    graph, content = build_message_with_content(
+        ECSDI.ResultadoInfoProductosComprados,
+        performative=ACL.inform,
+        sender=sender,
+        receiver=receiver,
+        conversation_id=conversation_id,
+        message_name='conjunto-productos-precio-ext'
+    )
+    for product in products:
+        product_node = add_product(graph, product)
+        graph.add((content, ECSDI.contiene_productos, product_node))
+    return graph
+
+
+def products_from_product_info_response(graph):
+    content = get_message_properties(graph)['content']
+    return [product_from_graph(graph, product) for product in graph.objects(content, ECSDI.contiene_productos)]
+
+
+def build_lot_assignment_request(products, sender, receiver, delivery_address='',
+                                 purchase_id=None, client_id=None):
+    return build_line_request(
+        ECSDI.PeticionAsignarLoteProducto,
+        products,
+        sender=sender,
+        receiver=receiver,
+        performative=ACL.request,
+        message_name='asignale-un-lote-a-este-producto',
+        delivery_address=delivery_address,
+        purchase_id=purchase_id,
+        client_id=client_id
+    )
+
+
+def build_client_data_request(client_id, iban, address, sender, receiver):
+    graph, content = build_message_with_content(
+        ECSDI.PeticionGuardarDatosFacturacionClientes,
+        performative=ACL.request,
+        sender=sender,
+        receiver=receiver,
+        message_name='datos-cliente'
+    )
+    graph.add((content, ECSDI.idCliente, Literal(client_id)))
+    graph.add((content, ECSDI.numeroIBAN, Literal(iban)))
+    if address:
+        graph.add((content, ECSDI.direccion, Literal(address)))
+    return graph
+
+
+def client_data_from_request(graph, content):
+    return {
+        'id': first_literal(graph, content, ECSDI.idCliente, ''),
+        'iban': first_literal(graph, content, ECSDI.numeroIBAN, ''),
+        'address': first_literal(graph, content, ECSDI.direccion, '')
+    }
+
+
+def build_provider_data_request(provider_name, iban, sender, receiver):
+    graph, content = build_message_with_content(
+        ECSDI.PeticionGuardarDatosBancariosProveedor,
+        performative=ACL.request,
+        sender=sender,
+        receiver=receiver,
+        message_name='datos-bancarios-proveedor'
+    )
+    graph.add((content, ECSDI.nombreProveedor, Literal(provider_name)))
+    graph.add((content, ECSDI.numeroIBAN, Literal(iban)))
+    return graph
+
+
+def provider_data_from_request(graph, content):
+    return {
+        'name': first_literal(graph, content, ECSDI.nombreProveedor, ''),
+        'iban': first_literal(graph, content, ECSDI.numeroIBAN, '')
+    }
+
+
+def build_transfer_request(kind, amount, sender, receiver, participant='',
+                           purchase=None, provider='', iban='', message_name=None):
+    graph, content = build_message_with_content(
+        ECSDI.PeticionSolicitarTransferencia,
+        performative=ACL.request,
+        sender=sender,
+        receiver=receiver,
+        message_name=message_name or {
+            'cli': 'quiero cobrar al usuario',
+            'lote': 'cobrar-envios-lote',
+            'ext': 'pagar-valor-producto',
+            'dev': 'quiero-devolver'
+        }.get(kind, 'peticion-transferencia')
+    )
+    graph.add((content, ECSDI.tipoTransferencia, Literal(kind)))
+    graph.add((content, ECSDI.cantidadTransferencia, Literal(float(amount), datatype=XSD.float)))
+    if participant:
+        graph.add((content, ECSDI.participanteTransferencia, Literal(participant)))
+    if provider:
+        graph.add((content, ECSDI.nombreProveedor, Literal(provider)))
+    if iban:
+        graph.add((content, ECSDI.numeroIBAN, Literal(iban)))
+    if purchase:
+        compra = add_purchase(graph, purchase)
+        graph.add((content, ECSDI.contiene_compra, compra))
+    return graph
+
+
+def transfer_from_request(graph, content):
+    transfer = {
+        'kind': first_literal(graph, content, ECSDI.tipoTransferencia, ''),
+        'amount': first_float(graph, content, ECSDI.cantidadTransferencia, 0.0),
+        'participant': first_literal(graph, content, ECSDI.participanteTransferencia, ''),
+        'provider': first_literal(graph, content, ECSDI.nombreProveedor, ''),
+        'iban': first_literal(graph, content, ECSDI.numeroIBAN, ''),
+        'purchase': purchase_from_content(graph, content)
+    }
+    return transfer
+
+
+def add_purchase(graph, purchase, subject=None):
+    subject = subject or _uri(ECSDI, f'Compra_{purchase.get("id") or "anon"}')
+    graph.add((subject, RDF.type, ECSDI.Compra))
+    if purchase.get('id'):
+        graph.add((subject, ECSDI.idCompra, Literal(purchase['id'])))
+    if purchase.get('client_id'):
+        graph.add((subject, ECSDI.idCliente, Literal(purchase['client_id'])))
+    if purchase.get('client_iban'):
+        graph.add((subject, ECSDI.numeroIBAN, Literal(purchase['client_iban'])))
+    if purchase.get('delivery_address'):
+        graph.add((subject, ECSDI.direccion, Literal(purchase['delivery_address'])))
+    for item in purchase.get('items') or []:
+        quantity = item.get('quantity', 1)
+        price = item.get('line_price', item.get('price'))
+        _add_line(graph, subject, item, quantity, price=price)
+    return subject
+
+
+def build_completed_purchase_request(purchase, sender, receiver):
+    graph, content = build_message_with_content(
+        ECSDI.PeticionGuardarCompraRealizada,
+        performative=ACL.request,
+        sender=sender,
+        receiver=receiver,
+        message_name='quiero-guardar-compra'
+    )
+    compra = add_purchase(graph, purchase)
+    graph.add((content, ECSDI.compra_realizada, compra))
+    graph.add((content, ECSDI.contiene_compra, compra))
+    return graph
+
+
+def completed_purchase_from_request(graph, content):
+    compra = graph.value(content, ECSDI.compra_realizada) or graph.value(content, ECSDI.contiene_compra)
+    if compra is None:
+        return purchase_from_content(graph, content)
+    wrapper = _uri(ECSDI, 'WrapperCompra')
+    graph.add((wrapper, ECSDI.contiene_compra, compra))
+    return purchase_from_content(graph, wrapper)
+
+
+def build_user_purchases_request(client_id, sender, receiver):
+    graph, content = build_message_with_content(
+        ECSDI.PeticionProductosCompradosUsuario,
+        performative=ACL['query-ref'],
+        sender=sender,
+        receiver=receiver,
+        message_name='pedir-productos-comprados-por-usuario'
+    )
+    if client_id:
+        graph.add((content, ECSDI.idCliente, Literal(client_id)))
+    return graph
+
+
+def requested_client_id(graph, content):
+    return first_literal(graph, content, ECSDI.idCliente, '')
+
+
+def build_purchases_response(purchases, sender, receiver, conversation_id=None,
+                             content_type=ECSDI.ResultadoProductosCompradosUsuario,
+                             message_name='envio-productos-comprados-por-usuario'):
+    graph, content = build_message_with_content(
+        content_type,
+        performative=ACL.inform,
+        sender=sender,
+        receiver=receiver,
+        conversation_id=conversation_id,
+        message_name=message_name
+    )
+    for purchase in purchases:
+        compra = add_purchase(graph, purchase)
+        graph.add((content, ECSDI.contiene_compra, compra))
+        for item in purchase.get('items') or []:
+            product = add_product(graph, item)
+            graph.add((content, ECSDI.contiene_productos, product))
+    return graph
+
+
+def purchases_from_response(graph):
+    content = get_message_properties(graph)['content']
+    purchases = []
+    for compra in graph.objects(content, ECSDI.contiene_compra):
+        wrapper = _uri(ECSDI, 'WrapperCompra')
+        graph.add((wrapper, ECSDI.contiene_compra, compra))
+        purchases.append(purchase_from_content(graph, wrapper))
+    return purchases
+
+
+def build_week_purchases_request(sender, receiver):
+    return build_message_with_content(
+        ECSDI.PeticionComprasSemana,
+        performative=ACL['query-ref'],
+        sender=sender,
+        receiver=receiver,
+        message_name='pedir-compras-que-ya-han-pasado-una-semana'
+    )[0]
+
+
+def build_feedback_response(product_id, rating, client_id='', comment='', sender=DEFAULT_AGENT,
+                            receiver=DEFAULT_AGENT):
+    graph, content = build_message_with_content(
+        ECSDI.RespuestaFeedbackCliente,
+        performative=ACL.inform,
+        sender=sender,
+        receiver=receiver,
+        message_name='feedback-producto'
+    )
+    rating_node = _uri(ECSDI, f'ValoracionProducto_{product_id}')
+    graph.add((rating_node, RDF.type, ECSDI.ValoracionProducto))
+    graph.add((rating_node, ECSDI.idProducto, Literal(product_id)))
+    graph.add((rating_node, ECSDI.valoracionProducto, Literal(float(rating), datatype=XSD.float)))
+    graph.add((content, ECSDI.contiene_valoracion, rating_node))
+    if client_id:
+        graph.add((content, ECSDI.idCliente, Literal(client_id)))
+    if comment:
+        graph.add((content, ECSDI.mensajePersonalizado, Literal(comment)))
+    return graph
+
+
+def feedback_from_request(graph, content):
+    rating_node = graph.value(content, ECSDI.contiene_valoracion)
+    return {
+        'client_id': first_literal(graph, content, ECSDI.idCliente, ''),
+        'comment': first_literal(graph, content, ECSDI.mensajePersonalizado, ''),
+        'product_id': first_literal(graph, rating_node, ECSDI.idProducto, '') if rating_node else '',
+        'rating': first_float(graph, rating_node, ECSDI.valoracionProducto, 0.0) if rating_node else 0.0
+    }
+
+
+def build_new_product_response(ok, sender, receiver, conversation_id=None, text='OK'):
+    graph, content = build_message_with_content(
+        ECSDI.RespuestaNuevoProducto,
+        performative=ACL.inform if ok else ACL.refuse,
+        sender=sender,
+        receiver=receiver,
+        conversation_id=conversation_id,
+        message_name='respuesta-nuevo-producto'
+    )
+    graph.add((content, ECSDI.exitoNuevoProducto, Literal(bool(ok), datatype=XSD.boolean)))
+    graph.add((content, ECSDI.resultado, Literal(text)))
     return graph

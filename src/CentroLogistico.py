@@ -53,6 +53,12 @@ app = Flask(__name__)
 problems = {}
 probcounter = 0
 log_prefix = 'logistico'
+STOCK = {
+    'Auriculares Inalambricos SoundGo': 6,
+    'Mouse Ergonomico MX Lite': 8,
+    'Bombillas LED Pack 6': 10,
+}
+LOTES_PENDIENTES = []
 
 
 def log(msg):
@@ -77,7 +83,8 @@ def message():
         response = build_status_response(log_prefix, 'unknown', ok=False, text='INVALID RDF/FIPA MESSAGE')
         return serialize_graph(response)
 
-    if props['performative'] != ACL.request:
+    allowed_performatives = {ACL.request, ACL['query-if']}
+    if props['performative'] not in allowed_performatives:
         response = build_status_response(
             log_prefix,
             sender,
@@ -90,7 +97,10 @@ def message():
     if has_type(graph, content, ECSDI.PeticionExisteLineaComanda):
         requested = products_from_line_request(graph, content)
         log(f'PeticionExisteLineaComanda query for: {requested}')
-        availability = {product: random.choice([True, False, True]) for product in requested}
+        availability = {
+            product: STOCK.get(product, 0) >= int(quantity)
+            for product, quantity in requested.items()
+        }
         log(f'PeticionExisteLineaComanda response: {availability}')
         response = build_existence_response(
             availability,
@@ -101,10 +111,29 @@ def message():
         )
         return serialize_graph(response)
 
-    if has_type(graph, content, ECSDI.PeticionGuardarCompra):
+    if has_type(graph, content, ECSDI.PeticionAsignarLoteProducto) or has_type(graph, content, ECSDI.PeticionGuardarCompra):
         products = products_from_line_request(graph, content)
-        log(f'PeticionGuardarCompra: {products}')
-        # TODO: persist inventory changes
+        log(f'PeticionAsignarLoteProducto: {products}')
+        unavailable = [
+            product for product, quantity in products.items()
+            if STOCK.get(product, 0) < int(quantity)
+        ]
+        if unavailable:
+            response = build_status_response(
+                log_prefix,
+                sender,
+                ok=False,
+                text=f'SIN STOCK: {", ".join(unavailable)}',
+                conversation_id=conversation_id
+            )
+            return serialize_graph(response)
+
+        for product, quantity in products.items():
+            STOCK[product] = STOCK.get(product, 0) - int(quantity)
+        LOTES_PENDIENTES.append({
+            'sender': sender,
+            'products': dict(products),
+        })
         response = build_purchase_result(
             True,
             sender=log_prefix,

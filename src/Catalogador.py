@@ -33,17 +33,23 @@ from AgentCommunication import (
     build_directory_register,
     build_directory_search,
     build_directory_unregister,
+    build_new_product_response,
+    build_product_info_response,
+    build_provider_data_request,
     build_ratings_request,
     build_search_response,
     build_status_response,
     directory_addresses_from_response,
     filters_from_search_request,
+    first_literal,
     get_message_properties,
     has_type,
     message_conversation,
     message_sender,
     parse_graph,
+    product_from_graph,
     ratings_from_response,
+    products_from_line_request,
     response_ok,
     send_graph_message,
     serialize_graph,
@@ -65,6 +71,8 @@ catalog = [
         'name': 'Auriculares Inalambricos SoundGo',
         'brand': 'SoundGo',
         'seller': 'ECSDI Store',
+        'provider': 'ECSDI Store',
+        'external': False,
         'price': 39.99,
         'tags': ['audio', 'bluetooth', 'auriculares']
     },
@@ -73,6 +81,8 @@ catalog = [
         'name': 'Teclado Mecanico K85',
         'brand': 'TypeMaster',
         'seller': 'TechHub',
+        'provider': 'TechHub',
+        'external': True,
         'price': 79.95,
         'tags': ['teclado', 'gaming', 'mecanico']
     },
@@ -81,6 +91,8 @@ catalog = [
         'name': 'Mouse Ergonomico MX Lite',
         'brand': 'PointPro',
         'seller': 'ECSDI Store',
+        'provider': 'ECSDI Store',
+        'external': False,
         'price': 24.5,
         'tags': ['mouse', 'ergonomico', 'oficina']
     },
@@ -89,6 +101,8 @@ catalog = [
         'name': 'Monitor 27 IPS 2K',
         'brand': 'ViewSky',
         'seller': 'ScreenWorld',
+        'provider': 'ScreenWorld',
+        'external': True,
         'price': 229.0,
         'tags': ['monitor', '2k', 'oficina']
     },
@@ -97,6 +111,8 @@ catalog = [
         'name': 'Cafetera Espresso Compacta',
         'brand': 'CasaViva',
         'seller': 'HomePlus',
+        'provider': 'HomePlus',
+        'external': True,
         'price': 119.0,
         'tags': ['hogar', 'cocina', 'cafe']
     },
@@ -105,6 +121,8 @@ catalog = [
         'name': 'Mochila Urbana 20L',
         'brand': 'UrbanTrail',
         'seller': 'BagStore',
+        'provider': 'BagStore',
+        'external': True,
         'price': 45.0,
         'tags': ['mochila', 'viaje', 'accesorios']
     },
@@ -113,6 +131,8 @@ catalog = [
         'name': 'Bombillas LED Pack 6',
         'brand': 'LumiHome',
         'seller': 'ECSDI Store',
+        'provider': 'ECSDI Store',
+        'external': False,
         'price': 16.75,
         'tags': ['hogar', 'iluminacion', 'led']
     },
@@ -121,6 +141,8 @@ catalog = [
         'name': 'Libro Python para Agentes',
         'brand': 'EdTech',
         'seller': 'BookPlanet',
+        'provider': 'BookPlanet',
+        'external': True,
         'price': 31.2,
         'tags': ['libro', 'python', 'agentes']
     }
@@ -213,6 +235,64 @@ def search_catalog(filters):
     return [p for p in catalog if matches_product(p, filters)]
 
 
+def find_product(product_key):
+    key = str(product_key).strip().lower()
+    if not key:
+        return None
+    for product in catalog:
+        if key == str(product.get('id', '')).lower() or key == str(product.get('name', '')).lower():
+            return dict(product)
+    for product in catalog:
+        if key in str(product.get('name', '')).lower():
+            return dict(product)
+    return None
+
+
+def product_info_for_request(graph, content):
+    requested = products_from_line_request(graph, content)
+    products = []
+    for key, quantity in requested.items():
+        product = find_product(key)
+        if product is None:
+            continue
+        product['quantity'] = quantity
+        products.append(product)
+    return products
+
+
+def notify_provider_data(provider, iban):
+    if not provider or not iban or not diraddress:
+        return
+    try:
+        tesorero_resp = send_graph_message(
+            diraddress,
+            build_directory_search('TESORERO', sender=log_prefix)
+        )
+        if not response_ok(tesorero_resp):
+            return
+        addresses = directory_addresses_from_response(tesorero_resp)
+        if not addresses:
+            return
+        send_graph_message(
+            addresses[0],
+            build_provider_data_request(provider, iban, sender=log_prefix, receiver='TESORERO')
+        )
+    except Exception as exc:
+        log(f'TESORERO provider registration skipped: {exc}')
+
+
+def external_product_from_request(graph, content):
+    product_node = next(graph.objects(content, ECSDI.contiene_productos), None)
+    product = product_from_graph(graph, product_node) if product_node is not None else product_from_graph(graph, content)
+    provider = first_literal(graph, content, ECSDI.nombreProveedor, product.get('provider') or product.get('seller') or '')
+    iban = first_literal(graph, content, ECSDI.numeroIBAN, '')
+    if provider:
+        product['provider'] = provider
+        product.setdefault('seller', provider)
+    product['external'] = True
+    return product, iban
+
+
 def apply_min_rating_filter(products, filters):
     min_rating = filters.get('min_rating')
     if min_rating is None or min_rating == '':
@@ -235,7 +315,58 @@ def message():
         response = build_status_response(log_prefix, 'unknown', ok=False, text='INVALID RDF/FIPA MESSAGE')
         return serialize_graph(response)
 
-    if props['performative'] != ACL.request or not has_type(graph, content, ECSDI.PeticionCerca):
+    allowed_performatives = {ACL.request, ACL['query-ref']}
+    if props['performative'] not in allowed_performatives:
+        response = build_status_response(
+            log_prefix,
+            sender,
+            ok=False,
+            text='INVALID PERFORMATIVE',
+            conversation_id=conversation_id
+        )
+        return serialize_graph(response)
+
+    if has_type(graph, content, ECSDI.PeticionInfoProductosComprados):
+        products = product_info_for_request(graph, content)
+        log(f'conjunto-productos-comprados -> {len(products)} productos')
+        response = build_product_info_response(
+            products,
+            sender=log_prefix,
+            receiver=sender,
+            conversation_id=conversation_id
+        )
+        return serialize_graph(response)
+
+    if has_type(graph, content, ECSDI.PeticionNuevoProducto):
+        try:
+            product, iban = external_product_from_request(graph, content)
+            if not product.get('id'):
+                product['id'] = f'EXT{len(catalog) + 1:04}'
+            if not product.get('name'):
+                raise ValueError('missing product name')
+            catalog.append(product)
+            notify_provider_data(product.get('provider') or product.get('seller'), iban)
+            log(f'Nuevo producto externo registrado: {product["id"]} {product["name"]}')
+            response = build_new_product_response(
+                True,
+                sender=log_prefix,
+                receiver=sender,
+                conversation_id=conversation_id,
+                text='PRODUCTO REGISTRADO'
+            )
+            return serialize_graph(response)
+        except Exception as exc:
+            log(f'PeticionNuevoProducto failed: {exc}')
+            response = build_new_product_response(
+                False,
+                sender=log_prefix,
+                receiver=sender,
+                conversation_id=conversation_id,
+                text='PRODUCTO INVALIDO'
+            )
+            return serialize_graph(response)
+
+    if not has_type(graph, content, ECSDI.PeticionCerca):
         log('Unknown request type')
         response = build_status_response(
             log_prefix,
