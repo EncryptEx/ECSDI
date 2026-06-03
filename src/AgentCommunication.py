@@ -7,6 +7,8 @@ envelope and RDF content typed with the system ontology.
 """
 from uuid import uuid4
 import re
+import time as _time
+import threading as _threading
 
 import requests
 from rdflib import Graph, Literal, Namespace, RDF, URIRef
@@ -20,6 +22,28 @@ DSO = Namespace('http://www.agentes.org/ontology/directory-service#')
 RDF_FORMAT = 'xml'
 DEFAULT_AGENT = 'agent'
 DIRECTORY_AGENT = 'DirectoryService'
+
+# --- Packet tracer (fire-and-forget to Logger /trace endpoint) ---
+_tracer_url = None
+
+
+def set_tracer_url(url):
+    """Call once at agent startup after finding the Logger in the directory."""
+    global _tracer_url
+    _tracer_url = url
+
+
+def _fire_trace(from_agent, to_agent, msg_type, performative, ts, conv_id='', msg_name=''):
+    try:
+        requests.get(
+            _tracer_url + '/trace',
+            params={'from': from_agent, 'to': to_agent, 'type': msg_type,
+                    'performative': performative, 'ts': ts,
+                    'conversation_id': conv_id or '', 'msg_name': msg_name or ''},
+            timeout=0.5
+        )
+    except Exception:
+        pass
 
 
 def bind_namespaces(graph):
@@ -164,6 +188,26 @@ def first_bool(graph, subject, predicate, default=False):
 
 
 def send_graph_message(address, graph, timeout=None):
+    if _tracer_url and not address.startswith(_tracer_url):
+        try:
+            props = get_message_properties(graph)
+            from_agent = message_sender(props)
+            to_agent = str(props.get('receiver', 'unknown'))
+            content = props['content']
+            content_types = [str(t).split('#')[-1] for t in graph.objects(content, RDF.type)]
+            msg_type = content_types[0] if content_types else 'Message'
+            performative = str(props.get('performative', '')).split('#')[-1]
+            conv_id = message_conversation(props) or ''
+            msg_name = first_literal(graph, content, ECSDI.nombreMensaje, '')
+            ts = _time.time()
+            _t = _threading.Thread(
+                target=_fire_trace,
+                args=(from_agent, to_agent, msg_type, performative, ts, conv_id, msg_name),
+                daemon=True
+            )
+            _t.start()
+        except Exception:
+            pass
     response = requests.get(
         address + '/message',
         params={'message': serialize_graph(graph)},
@@ -201,6 +245,7 @@ def build_directory_register(agent_id, agent_type, address, sender, receiver=DIR
     graph = new_graph()
     content = _uri(DSO, 'Register')
     graph.add((content, RDF.type, DSO.Register))
+    graph.add((content, ECSDI.nombreMensaje, Literal(f'registrar-agente [{agent_type}]')))
     graph.add((content, DSO.AgentID, Literal(agent_id)))
     graph.add((content, DSO.AgentType, Literal(agent_type)))
     graph.add((content, DSO.Address, Literal(address)))
@@ -212,6 +257,7 @@ def build_directory_unregister(agent_id, sender, receiver=DIRECTORY_AGENT):
     graph = new_graph()
     content = _uri(DSO, 'Unregister')
     graph.add((content, RDF.type, DSO.Unregister))
+    graph.add((content, ECSDI.nombreMensaje, Literal(f'desregistrar-agente [{agent_id}]')))
     graph.add((content, DSO.AgentID, Literal(agent_id)))
     build_acl_message(graph, ACL.request, sender, receiver, content)
     return graph
@@ -221,6 +267,7 @@ def build_directory_search(agent_type, sender, receiver=DIRECTORY_AGENT, all_age
     graph = new_graph()
     content = _uri(DSO, 'SearchAll' if all_agents else 'Search')
     graph.add((content, RDF.type, DSO.SearchAll if all_agents else DSO.Search))
+    graph.add((content, ECSDI.nombreMensaje, Literal(f'buscar-agente [{agent_type}]')))
     graph.add((content, DSO.AgentType, Literal(agent_type)))
     build_acl_message(graph, ACL.request, sender, receiver, content)
     return graph

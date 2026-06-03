@@ -1,12 +1,387 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ca">
 <head>
-    <meta charset="UTF-8">
-    <title>Solvers Statistics</title>
-    <meta http-equiv="refresh" content="20">
+<meta charset="UTF-8">
+<title>Agent Communication Tracer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#1a1a2e;color:#e0e0e0;font-family:'Segoe UI',sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+#topbar{padding:8px 14px;background:#16213e;color:#e94560;font-size:1em;font-weight:bold;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+#topbar .right{font-size:.75em;color:#888;font-weight:normal}
+
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;background:#4CAF50;animation:pulse 1.2s infinite}
+.dot.off{background:#555;animation:none}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+#main{display:flex;flex:1;min-height:0}
+#graph-panel{display:flex;flex-direction:column;flex:60%;border-right:1px solid #2a2a4a;min-width:0}
+#graph-svg{flex:1;background:#0f0f23;width:100%}
+#controls{background:#16213e;padding:6px 10px;display:flex;align-items:center;gap:6px;flex-shrink:0}
+#controls button{background:#e94560;border:none;color:#fff;padding:4px 9px;border-radius:4px;cursor:pointer;font-size:.8em}
+#controls button:hover{background:#c73652}
+#controls button.sec{background:#2a2a4a}
+#controls button.sec:hover{background:#3a3a5a}
+#controls button.active{background:#4CAF50}
+#timeline{flex:1;accent-color:#e94560;min-width:60px}
+#counter{color:#888;font-size:.75em;white-space:nowrap;min-width:60px;text-align:right}
+#log-panel{display:flex;flex-direction:column;flex:40%;min-width:0;min-height:0}
+#log-header{background:#16213e;padding:6px 12px;font-size:.78em;color:#aaa;display:flex;justify-content:space-between;flex-shrink:0}
+#log-list{flex:1;overflow-y:auto;font-size:.72em}
+.li{padding:5px 9px;border-bottom:1px solid #1e1e38;cursor:pointer;display:flex;gap:5px;align-items:baseline;line-height:1.3}
+.li:hover{background:#1e1e3a}
+.li.cur{background:#251535;border-left:3px solid #e94560;padding-left:6px}
+.li .ln{color:#444;min-width:26px;flex-shrink:0}
+.li .lt{color:#777;min-width:54px;flex-shrink:0}
+.li .lf{color:#4CAF50;min-width:70px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li .la{color:#444;flex-shrink:0}
+.li .lo{color:#2196F3;min-width:70px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li .lm{color:#FF9800;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.li .lm .lm2{color:#666;font-size:.85em;font-weight:normal;margin-left:4px}
+.li .lp{color:#777;font-style:italic;font-size:.88em;flex-shrink:0}
+#detail{background:#0d0d1f;border-top:1px solid #2a2a4a;padding:7px 12px;font-size:.75em;flex-shrink:0;min-height:68px}
+#detail .empty{color:#444}
+#detail table{border-collapse:collapse;width:100%}
+#detail td{padding:2px 6px;vertical-align:top}
+#detail td:first-child{color:#888;width:88px}
+</style>
 </head>
 <body>
+<div id="topbar">
+  <span><span class="dot" id="sdot"></span>Agent Communication Tracer</span>
+  <span class="right" id="topinfo">0 agents &middot; 0 missatges</span>
+</div>
+<div id="main">
+  <div id="graph-panel">
+    <svg id="graph-svg" viewBox="0 0 760 420" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <marker id="ah"  markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,9 3,0 6" fill="#3a3a5a"/></marker>
+        <marker id="aha" markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,9 3,0 6" fill="#e94560"/></marker>
+      </defs>
+      <g id="el"></g>
+      <g id="nl"></g>
+      <g id="pl"></g>
+    </svg>
+    <div id="controls">
+      <button onclick="goFirst()" title="Primer">|&#9664;</button>
+      <button onclick="goPrev()"  title="Anterior">&#9664;</button>
+      <button onclick="goNext()"  title="Seguent">&#9654;</button>
+      <button onclick="goLast()"  title="Ultim">&#9654;|</button>
+      <button id="btnPlay" class="sec" onclick="togglePlay()">&#9654; Play</button>
+      <input  type="range" id="timeline" min="0" max="0" value="0" oninput="onSlider(this.value)">
+      <span id="counter">0 / 0</span>
+      <button id="btnLive" class="active" onclick="toggleLive()" title="Mode en viu">&#9711; LIVE</button>
+    </div>
+  </div>
+  <div id="log-panel">
+    <div id="log-header">
+      <span>Traça de missatges</span>
+      <span id="liveind"></span>
+    </div>
+    <div id="log-list"></div>
+    <div id="detail"><div class="empty">Clica un missatge per veure detalls</div></div>
+  </div>
+</div>
+<script>
+// ── Human-readable label ──────────────────────────────────
+// Returns {primary, secondary} for display.
+// msg_name (nombreMensaje) is the protocol name defined in PDTool → use as primary.
+// type is the RDF class name → use as secondary / fallback.
+const TYPE_LABELS = {
+  'PeticionCompra':             'quiero-comprar',
+  'ResultadoCompra':            'resultado-compra',
+  'PeticionBusqueda':           'buscar-productos',
+  'ResultadoBusqueda':          'resultado-busqueda',
+  'PeticionExisteLineaComanda': 'existe-producto',
+  'PeticionAsignarLoteProducto':'asignar-lote',
+  'PeticionInfoProducto':       'info-productos',
+  'ResultadoInfoProducto':      'info-productos-resp',
+  'PeticionGuardarCompraRealizada':'quiero-guardar-compra',
+  'PeticionDevolucion':         'quiero-devolver',
+  'EnvioDatosEnvio':            'datos-envio',
+  'PeticionFeedbackCliente':    'pedir-feedback',
+  'RespuestaFeedbackCliente':   'feedback-cliente',
+  'EnvioSugerenciaProductoACliente':'sugerencia-productos',
+  'Respuesta':                  'respuesta',
+  'Register':                   'registrar-agente',
+  'Unregister':                 'desregistrar-agente',
+  'Search':                     'buscar-agente',
+  'SearchAll':                  'buscar-agente (tots)',
+  'PeticionNuevoProducto':      'nou-producte-extern',
+  'TransferenciaRequest':       'transferencia',
+  'PeticionProductosCompradosUsuario': 'productes-comprats-usuari',
+  'PeticionComprasSemana':      'compres-ultima-setmana',
+  'PeticionRatings':            'obtenir-valoracions',
+  'ResultadoRatings':           'valoracions-producte',
+  'DatosBancarios':             'dades-bancaries',
+};
+function labelFor(m) {
+  const name  = (m.msg_name || '').trim();
+  const rtype = (m.type || '').trim();
+  const primary   = name || TYPE_LABELS[rtype] || rtype;
+  const secondary = (name && TYPE_LABELS[rtype] && TYPE_LABELS[rtype] !== name)
+                    ? rtype
+                    : (name ? rtype : '');
+  return { primary, secondary };
+}
+// No hardcoded nodes. Every agent is discovered at runtime from the message trace.
+const PALETTE = ['#2196F3','#4CAF50','#FF9800','#F44336','#9C27B0','#00BCD4',
+                 '#607D8B','#E91E63','#795548','#3F51B5','#009688','#FF5722'];
+const CX = 380, CY = 205, BASE_R = 155, SLOTS = 12;
+const nodes = {};   // normalized_id → {label, x, y, c}
+let nextSlot = 0, colorIdx = 0;
 
-<img src="data:image/png;base64, {{ plot_url }}">
+// Normalize agent identifiers:
+//   'ventas-9020'        → 'VENTAS'
+//   'VENTAS'             → 'VENTAS'
+//   'logistico-9030'     → 'LOGISTICO'
+//   'CENTRO_LOGISTICO'   → 'CENTRO-LOGISTICO'  (kept distinct on purpose)
+//   'client-9001'        → 'CLIENT'
+//   'DirectoryService'   → 'DIRECTORYSERVICE'
+function normAgent(n) {
+  if (!n) return 'UNKNOWN';
+  return n.trim()
+          .toUpperCase()
+          .replace(/_/g, '-')
+          .replace(/-\d+$/, '');  // strip trailing port
+}
+
+function getOrCreateNode(id) {
+  if (nodes[id]) return nodes[id];
+  const slot = nextSlot++;
+  // Extra rings for overflow agents
+  const ring  = Math.floor(slot / SLOTS);
+  const r     = BASE_R + ring * 55;
+  const angle = (slot % SLOTS) / SLOTS * 2 * Math.PI - Math.PI / 2;
+  nodes[id] = {
+    label: id,
+    x: Math.round(CX + r * Math.cos(angle)),
+    y: Math.round(CY + r * Math.sin(angle)),
+    c: PALETTE[colorIdx++ % PALETTE.length]
+  };
+  return nodes[id];
+}
+
+// ── SVG helpers ────────────────────────────────────────────
+const NS = 'http://www.w3.org/2000/svg';
+const el = document.getElementById('el');
+const nl = document.getElementById('nl');
+const pl = document.getElementById('pl');
+
+function svgEl(tag, attrs) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  return e;
+}
+
+function renderNodes() {
+  nl.innerHTML = '';
+  for (const [, n] of Object.entries(nodes)) {
+    const g = document.createElementNS(NS, 'g');
+    g.appendChild(svgEl('circle', {cx: n.x, cy: n.y, r: 28,
+      fill: n.c + '22', stroke: n.c, 'stroke-width': 2}));
+    // Two-line label: first word / rest
+    const parts = n.label.split('-');
+    const l1 = parts[0];
+    const l2 = parts.slice(1).join('-');
+    const t1 = svgEl('text', {x: n.x, y: n.y + (l2 ? -3 : 4),
+      'text-anchor': 'middle', fill: n.c, 'font-size': '9', 'font-weight': 'bold'});
+    t1.textContent = l1.length > 10 ? l1.slice(0,9)+'…' : l1;
+    g.appendChild(t1);
+    if (l2) {
+      const t2 = svgEl('text', {x: n.x, y: n.y + 9,
+        'text-anchor': 'middle', fill: n.c + 'aa', 'font-size': '8'});
+      t2.textContent = l2.length > 10 ? l2.slice(0,9)+'…' : l2;
+      g.appendChild(t2);
+    }
+    nl.appendChild(g);
+  }
+}
+
+function edgeKey(a, b) { return a + '>>' + b; }
+
+function drawEdge(layer, fn, tn, color, active) {
+  const dx = tn.x - fn.x, dy = tn.y - fn.y;
+  const len = Math.sqrt(dx*dx + dy*dy) || 1;
+  const r = 29;
+  layer.appendChild(svgEl('line', {
+    x1: fn.x + dx/len*r,  y1: fn.y + dy/len*r,
+    x2: tn.x - dx/len*r,  y2: tn.y - dy/len*r,
+    stroke: color,
+    'stroke-width': active ? 2.5 : 1.5,
+    'stroke-dasharray': active ? 'none' : '5 4',
+    'marker-end': active ? 'url(#aha)' : 'url(#ah)'
+  }));
+}
+
+function renderEdges() {
+  el.innerHTML = '';
+  const seen = new Set();
+  const end = currentIdx >= 0 ? currentIdx + 1 : 0;
+  for (let i = 0; i < end; i++) {
+    const m = msgs[i];
+    const f = normAgent(m.from), t = normAgent(m.to), k = edgeKey(f, t);
+    if (seen.has(k) || f === t) continue;
+    seen.add(k);
+    const fn = nodes[f], tn = nodes[t];
+    if (fn && tn) drawEdge(el, fn, tn, '#2e2e50', false);
+  }
+  if (currentIdx >= 0) {
+    const m = msgs[currentIdx];
+    const f = normAgent(m.from), t = normAgent(m.to);
+    const fn = nodes[f], tn = nodes[t];
+    if (fn && tn && f !== t) drawEdge(el, fn, tn, '#e94560', true);
+  }
+}
+
+// ── Packet animation ───────────────────────────────────────
+let animReq = null;
+function animPacket(fid, tid) {
+  const fn = nodes[fid], tn = nodes[tid];
+  if (!fn || !tn || fid === tid) return;
+  if (animReq) { cancelAnimationFrame(animReq); pl.innerHTML = ''; }
+  const c = svgEl('circle', {r: 7, fill: fn.c, stroke: '#fff', 'stroke-width': 1.5});
+  pl.appendChild(c);
+  const t0 = performance.now(), dur = 600;
+  function step(now) {
+    let p = Math.min((now - t0) / dur, 1);
+    p = p < .5 ? 2*p*p : -1 + (4 - 2*p)*p;
+    c.setAttribute('cx', fn.x + (tn.x - fn.x)*p);
+    c.setAttribute('cy', fn.y + (tn.y - fn.y)*p);
+    if (p < 1) animReq = requestAnimationFrame(step);
+    else { pl.innerHTML = ''; animReq = null; }
+  }
+  animReq = requestAnimationFrame(step);
+}
+
+// ── State ──────────────────────────────────────────────────
+let msgs = [], currentIdx = -1, isPlaying = false, isLive = true, playTimer = null;
+
+// ── Navigation ─────────────────────────────────────────────
+function goTo(i) {
+  if (!msgs.length) return;
+  i = Math.max(0, Math.min(i, msgs.length - 1));
+  currentIdx = i;
+  document.getElementById('timeline').value = i;
+  const m = msgs[i];
+  const f = normAgent(m.from), t = normAgent(m.to);
+  let changed = false;
+  if (!nodes[f]) { getOrCreateNode(f); changed = true; }
+  if (!nodes[t]) { getOrCreateNode(t); changed = true; }
+  if (changed) renderNodes();
+  renderEdges();
+  renderMsgList();
+  renderDetail();
+  animPacket(f, t);
+}
+function goFirst() { if (msgs.length) goTo(0); }
+function goPrev()  { if (currentIdx > 0) goTo(currentIdx - 1); }
+function goNext()  { if (currentIdx < msgs.length - 1) goTo(currentIdx + 1); }
+function goLast()  { if (msgs.length) goTo(msgs.length - 1); }
+function onSlider(v) { goTo(parseInt(v)); }
+
+function togglePlay() {
+  if (isPlaying) {
+    clearInterval(playTimer); isPlaying = false;
+    document.getElementById('btnPlay').innerHTML = '&#9654; Play';
+  } else {
+    isPlaying = true;
+    document.getElementById('btnPlay').innerHTML = '&#9646;&#9646; Pause';
+    playTimer = setInterval(() => {
+      if (currentIdx >= msgs.length - 1) { togglePlay(); } else { goNext(); }
+    }, 750);
+  }
+}
+
+function toggleLive() {
+  isLive = !isLive;
+  const btn = document.getElementById('btnLive');
+  const dot = document.getElementById('sdot');
+  if (isLive) {
+    btn.textContent = '⊙ LIVE'; btn.className = 'active'; dot.className = 'dot';
+  } else {
+    btn.textContent = '◎ MANUAL'; btn.className = 'sec'; dot.className = 'dot off';
+  }
+}
+
+// ── Message list ───────────────────────────────────────────
+function renderMsgList() {
+  const list = document.getElementById('log-list');
+  list.innerHTML = '';
+  msgs.forEach((m, i) => {
+    const d = document.createElement('div');
+    d.className = 'li' + (i === currentIdx ? ' cur' : '');
+    d.dataset.i = i; d.onclick = () => goTo(i);
+    const { primary, secondary } = labelFor(m);
+    const subLabel = secondary ? `<span class="lm2">${secondary}</span>` : '';
+    d.innerHTML =
+      `<span class="ln">#${m.id}</span>` +
+      `<span class="lt">${m.ts_fmt}</span>` +
+      `<span class="lf">${normAgent(m.from)}</span>` +
+      `<span class="la">→</span>` +
+      `<span class="lo">${normAgent(m.to)}</span>` +
+      `<span class="lm">${primary}${subLabel}</span>` +
+      `<span class="lp">${m.performative}</span>`;
+    list.appendChild(d);
+  });
+  updateTopBar();
+  if (currentIdx >= 0) {
+    const a = list.querySelector('.cur');
+    if (a) a.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+}
+
+function updateTopBar() {
+  document.getElementById('counter').textContent = (currentIdx + 1) + ' / ' + msgs.length;
+  document.getElementById('topinfo').textContent =
+    Object.keys(nodes).length + ' agents · ' + msgs.length + ' missatges';
+}
+
+function renderDetail() {
+  const p = document.getElementById('detail');
+  if (currentIdx < 0 || currentIdx >= msgs.length) {
+    p.innerHTML = '<div class="empty">Clica un missatge per veure detalls</div>'; return;
+  }
+  const m = msgs[currentIdx];
+  const { primary } = labelFor(m);
+  p.innerHTML = `<table>` +
+    `<tr><td>ID</td><td>#${m.id}</td></tr>` +
+    `<tr><td>Hora</td><td>${m.ts_fmt}</td></tr>` +
+    `<tr><td>Protocol</td><td><strong>${primary}</strong></td></tr>` +
+    `<tr><td>Tipus RDF</td><td>${m.type}</td></tr>` +
+    `<tr><td>De</td><td>${m.from}</td></tr>` +
+    `<tr><td>A</td><td>${m.to}</td></tr>` +
+    `<tr><td>Performativa</td><td>${m.performative}</td></tr>` +
+    `<tr><td>Conversa</td><td>${m.conversation_id || '—'}</td></tr>` +
+    `</table>`;
+}
+
+// ── Polling ────────────────────────────────────────────────
+function fetchMsgs() {
+  fetch('/api/messages').then(r => r.json()).then(data => {
+    const wasEnd = currentIdx >= msgs.length - 1;
+    msgs = data.messages;
+    document.getElementById('timeline').max = Math.max(0, msgs.length - 1);
+    // Discover all agents dynamically
+    let changed = false;
+    msgs.forEach(m => {
+      const f = normAgent(m.from), t = normAgent(m.to);
+      if (!nodes[f]) { getOrCreateNode(f); changed = true; }
+      if (!nodes[t]) { getOrCreateNode(t); changed = true; }
+    });
+    if (changed) renderNodes();
+    if (isLive && wasEnd && msgs.length > 0) {
+      goTo(msgs.length - 1);
+    } else {
+      renderEdges();
+      renderMsgList();
+      updateTopBar();
+    }
+  }).catch(() => {});
+}
+
+// ── Init ───────────────────────────────────────────────────
+fetchMsgs();
+setInterval(fetchMsgs, 1500);
+</script>
 </body>
+</html>
 </html>

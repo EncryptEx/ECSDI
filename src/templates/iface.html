@@ -16,6 +16,13 @@
         .error { color: #b30000; font-weight: bold; }
         .muted { color: #555; }
         .actions { display: flex; gap: 8px; margin-top: 12px; }
+        .invoice-box { border: 2px solid #2ecc71; background: #f0fff4; }
+        .invoice-title { color: #1a7a4a; font-size: 1.15em; margin-bottom: 8px; }
+        .invoice-meta { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 10px; font-size: .9em; color: #333; }
+        .invoice-meta span strong { color: #1a7a4a; }
+        .invoice-total { font-size: 1.1em; color: #1a7a4a; margin-top: 10px; }
+        .invoice-footer { margin-top: 10px; display: flex; gap: 10px; }
+        @media print { body * { visibility: hidden; } .invoice-box, .invoice-box * { visibility: visible; } .invoice-box { position: absolute; top: 0; left: 0; width: 100%; } }
     </style>
 </head>
 <body>
@@ -23,6 +30,39 @@
 
 {% if iface_message %}
 <div class="msg">{{ iface_message }}</div>
+{% endif %}
+
+{% if last_invoice %}
+<div class="box invoice-box">
+    <h3 class="invoice-title">&#x1F9FE; Factura de compra</h3>
+    <div class="invoice-meta">
+        <span><strong>Comanda:</strong> {{ last_invoice.order_id }}</span>
+        <span><strong>Data:</strong> {{ last_invoice.date }}</span>
+        <span><strong>Client:</strong> {{ last_invoice.client_id }}</span>
+        <span><strong>Adreca entrega:</strong> {{ last_invoice.delivery_address }}</span>
+        <span><strong>IBAN:</strong> {{ last_invoice.client_iban }}</span>
+    </div>
+    <table>
+        <thead>
+            <tr><th>#</th><th>Producte</th><th>Marca</th><th>Venedor</th><th>Preu</th></tr>
+        </thead>
+        <tbody>
+            {% for item in last_invoice['items'] %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ item['name'] }}</td>
+                <td>{{ item['brand'] }}</td>
+                <td>{{ item['seller'] }}</td>
+                <td>{{ '%.2f' | format(item['price']) }} EUR</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="invoice-total"><strong>TOTAL: {{ '%.2f' | format(last_invoice.total) }} EUR</strong></p>
+    <div class="invoice-footer">
+        <button onclick="window.print()">&#x1F5A8; Imprimir / Desar PDF</button>
+    </div>
+</div>
 {% endif %}
 
 {% if notifications %}

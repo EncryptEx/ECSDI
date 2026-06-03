@@ -17,19 +17,12 @@ Logger
 
 """
 
-from io import BytesIO
 from Util import gethostname
 import socket
 import argparse
 from FlaskServer import shutdown_server
 from requests import ConnectionError
-from flask import Flask, request, render_template
-import matplotlib
-
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import base64
-import numpy as np
+from flask import Flask, request, render_template, jsonify
 import time
 import logging
 from rdflib import RDF
@@ -52,6 +45,8 @@ from AgentCommunication import (
 app = Flask(__name__)
 
 workers_logging = {}
+message_log = []
+log_counter = 0
 
 
 @app.route("/message")
@@ -84,50 +79,49 @@ def message():
     return serialize_graph(response)
 
 
+@app.route('/trace')
+def trace():
+    """Lightweight packet trace endpoint - called by send_graph_message on each agent."""
+    global log_counter
+    from_agent = request.args.get('from', 'unknown')
+    to_agent = request.args.get('to', 'unknown')
+    msg_type = request.args.get('type', 'Message')
+    performative = request.args.get('performative', 'inform')
+    conv_id = request.args.get('conversation_id', '')
+    msg_name = request.args.get('msg_name', '')
+    ts_raw = request.args.get('ts', None)
+    try:
+        ts = float(ts_raw) if ts_raw else time.time()
+    except (ValueError, TypeError):
+        ts = time.time()
+
+    log_counter += 1
+    message_log.append({
+        'id': log_counter,
+        'ts': ts,
+        'ts_fmt': time.strftime('%H:%M:%S', time.localtime(ts)),
+        'from': from_agent,
+        'to': to_agent,
+        'type': msg_type,
+        'msg_name': msg_name,
+        'performative': performative,
+        'conversation_id': conv_id,
+    })
+    return 'OK'
+
+
+@app.route('/api/messages')
+def api_messages():
+    """Return the full trace log as JSON for the frontend."""
+    return jsonify({'messages': message_log})
+
+
 @app.route('/info')
 def info():
     """
     Entrada que da informacion sobre el agente a traves de una pagina web
     """
-    global workers_logging
-
-    types = set()
-    solvers = workers_logging.keys()
-    for solv in workers_logging:
-        for tp in workers_logging[solv]:
-            types.add(tp)
-
-    lbars = []
-    for t in types:
-        bar = []
-        for solv in workers_logging:
-            if t in workers_logging[solv]:
-                bar.append(workers_logging[solv][t])
-            else:
-                bar.append(0)
-        lbars.append(bar)
-
-    img = BytesIO()
-    index = np.arange(len(solvers))
-    bar_width = 0.35
-    fig = plt.figure(figsize=(5, 8), dpi=100)
-    for i, data, type in zip(range(len(lbars)), lbars, types):
-        plt.barh(index + (i * bar_width), data, bar_width, alpha=0.4, label=type)
-
-    plt.ylabel('Solver')
-    plt.xlabel('Num probs')
-    plt.title(f"Resuelto desde {time.strftime('%Y-%m-%d %H:%M')}")
-    ids = [f'Solver-{i + 1}' for i in range(len(solvers))]
-    plt.yticks(index + bar_width / 2, ids)
-    plt.legend()
-
-    plt.tight_layout()
-    plt.savefig(img, format='png')
-    img.seek(0)
-    plot_url = base64.b64encode(img.getvalue()).decode()
-    plt.close()
-
-    return render_template('logview.html', plot_url=plot_url)
+    return render_template('logview.html')
 
 
 @app.route("/stop")

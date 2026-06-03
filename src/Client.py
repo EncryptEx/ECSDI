@@ -50,6 +50,7 @@ from AgentCommunication import (
     response_text,
     send_graph_message,
     serialize_graph,
+    set_tracer_url,
     shipping_notice_from_content,
 )
 
@@ -79,6 +80,7 @@ iface_message = ''
 has_searched = False
 client_notifications = []
 notification_counter = 0
+last_invoice = None
 
 
 def empty_restriction_row():
@@ -321,6 +323,7 @@ def message():
     global last_delivery_address
     global last_client_iban
     global has_searched
+    global last_invoice
 
     if request.method == 'GET' and 'message' in request.args:
         try:
@@ -419,9 +422,27 @@ def message():
 
             order_id, status, invoice_total = send_message(products, delivery_address, client_iban)
             if status == 'SENT':
-                iface_message = f'Pedido {order_id} enviado correctamente. Factura: {invoice_total:.2f} EUR'
+                iface_message = f'Pedido {order_id} enviat correctament. Factura: {invoice_total:.2f} EUR'
+                from datetime import datetime
+                last_invoice = {
+                    'order_id': order_id,
+                    'date': datetime.now().strftime('%d/%m/%Y %H:%M'),
+                    'client_id': clientid or log_prefix,
+                    'delivery_address': delivery_address,
+                    'client_iban': ('****' + client_iban[-4:]) if len(client_iban) >= 4 else client_iban,
+                    'items': [
+                        {
+                            'name': item['product'].get('name', ''),
+                            'brand': item['product'].get('brand', ''),
+                            'seller': item['product'].get('seller', ''),
+                            'price': float(item['product'].get('price', 0.0) or 0.0),
+                        }
+                        for item in assistant_proposal
+                    ],
+                    'total': invoice_total,
+                }
             else:
-                iface_message = f'Pedido {order_id} no enviado ({status})'
+                iface_message = f'Pedido {order_id} no enviat ({status})'
 
             # Limpiamos la interfaz despues de solicitar el envio.
             search_groups = []
@@ -488,7 +509,8 @@ def iface():
         client_id=clientid or log_prefix,
         notifications=client_notifications,
         iface_message=iface_message,
-        has_searched=has_searched
+        has_searched=has_searched,
+        last_invoice=last_invoice,
     )
 
 
@@ -657,7 +679,7 @@ if __name__ == '__main__':
     log(f'DS Hostname = {hostaddr}')
 
     clientadd = f'http://{hostaddr}:{port}'
-    clientid = hostaddr.split('.')[0] + '-' + str(port)
+    clientid = log_prefix  # use descriptive ID so the tracer shows 'CLIENT-9001' not '127-9001'
 
     if args.dir is None:
         raise NameError('A Directory Service addess is needed')
@@ -677,6 +699,16 @@ if __name__ == '__main__':
 
     if response_ok(register_response):
         log(f'{clientid} successfully registered')
+        # Try to connect to Logger for packet tracing
+        try:
+            _lr = send_graph_message(diraddress, build_directory_search('LOGGER', sender=clientid))
+            if response_ok(_lr):
+                _la = directory_addresses_from_response(_lr)
+                if _la:
+                    set_tracer_url(_la[0])
+                    log(f'Packet tracing enabled → {_la[0]}')
+        except Exception:
+            pass
         app.run(host=hostname, port=port, debug=False, use_reloader=False)
 
         log(f'{clientid} unregistering')

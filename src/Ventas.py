@@ -60,6 +60,7 @@ from AgentCommunication import (
     requested_client_id,
     send_graph_message,
     serialize_graph,
+    set_tracer_url,
 )
 
 app = Flask(__name__)
@@ -626,6 +627,16 @@ if __name__ == '__main__':
 
     if response_ok(resp):
         log(f'{solverid} successfully registered')
+        # Try to connect to Logger for packet tracing
+        try:
+            _lr = send_graph_message(diraddress, build_directory_search('LOGGER', sender=solverid))
+            if response_ok(_lr):
+                _la = directory_addresses_from_response(_lr)
+                if _la:
+                    set_tracer_url(_la[0])
+                    log(f'Packet tracing enabled → {_la[0]}')
+        except Exception:
+            pass
         # Ponemos en marcha el servidor Flask
         app.run(host=hostname, port=port, debug=False, use_reloader=False)
 
