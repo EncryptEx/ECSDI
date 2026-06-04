@@ -28,6 +28,7 @@ from AgentCommunication import (
     build_directory_register,
     build_directory_search,
     build_directory_unregister,
+    build_shipping_notice,
     build_status_response,
     client_data_from_request,
     directory_addresses_from_response,
@@ -111,6 +112,64 @@ def notify_completed_purchase(transfer):
         log(f'No se pudo notificar compra finalizada: {exc}')
 
 
+def enrich_transfer_purchase_with_shipping(transfer):
+    notice = transfer.get('shipping_notice') or {}
+    if not notice:
+        return
+    purchase = transfer.get('purchase') or {}
+    if notice.get('delivery_date'):
+        purchase['delivery_date'] = notice['delivery_date']
+    if notice.get('transportista'):
+        purchase['transportista'] = notice['transportista']
+    if notice.get('tracking_id'):
+        purchase['tracking_id'] = notice['tracking_id']
+    transfer['purchase'] = purchase
+
+
+def notify_shipping_data_to_client(transfer):
+    notice = transfer.get('shipping_notice') or {}
+    if not notice:
+        return 0
+
+    try:
+        client_resp = send_graph_message(
+            diraddress,
+            build_directory_search('CLIENTE', sender=log_prefix, all_agents=True)
+        )
+    except Exception as exc:
+        log(f'No se pudo buscar CLIENTE para datos de envio: {exc}')
+        return 0
+
+    if not response_ok(client_resp):
+        log('CLIENTE no encontrado para datos de envio')
+        return 0
+
+    addresses = directory_addresses_from_response(client_resp)
+    sent = 0
+    purchase = notice.get('purchase') or transfer.get('purchase') or {}
+    for address in addresses:
+        try:
+            response = send_graph_message(
+                address,
+                build_shipping_notice(
+                    purchase,
+                    sender=log_prefix,
+                    receiver='CLIENTE',
+                    transportista=notice.get('transportista', ''),
+                    delivery_date=notice.get('delivery_date', ''),
+                    tracking_id=notice.get('tracking_id', ''),
+                    message=notice.get('message', '')
+                )
+            )
+            if response_ok(response):
+                sent += 1
+        except Exception as exc:
+            log(f'No se pudo enviar datos de envio a {address}: {exc}')
+    if sent:
+        log(f'Datos de envio enviados por Tesorero compra={purchase.get("id", "")} clientes={sent}')
+    return sent
+
+
 def bank_address():
     if not diraddress:
         return None, 'DIRECTORY NOT CONFIGURED'
@@ -179,7 +238,11 @@ def process_transfer(graph, content):
     )
 
     if payment['kind'] in ('cli', 'lote'):
+        if payment['kind'] == 'lote':
+            enrich_transfer_purchase_with_shipping(transfer)
         notify_completed_purchase(transfer)
+    if payment['kind'] == 'lote':
+        notify_shipping_data_to_client(transfer)
 
     return True, bank_text
 

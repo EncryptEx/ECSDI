@@ -154,6 +154,72 @@ catalog = [
         'warehouse_managed': False,
         'price': 31.2,
         'tags': ['libro', 'python', 'agentes']
+    },
+    {
+        'id': 'P1009',
+        'name': 'Webcam Full HD FocusCam',
+        'brand': 'ViewSky',
+        'seller': 'ECSDI Store',
+        'provider': 'ECSDI Store',
+        'external': False,
+        'warehouse_managed': True,
+        'price': 54.9,
+        'tags': ['oficina', 'video', 'teletrabajo']
+    },
+    {
+        'id': 'P1010',
+        'name': 'Hub USB-C 7 en 1',
+        'brand': 'TechHub',
+        'seller': 'TechHub',
+        'provider': 'TechHub',
+        'external': True,
+        'warehouse_managed': True,
+        'price': 49.95,
+        'tags': ['usb-c', 'oficina', 'accesorios']
+    },
+    {
+        'id': 'P1011',
+        'name': 'Altavoz Bluetooth Mini',
+        'brand': 'SoundGo',
+        'seller': 'ECSDI Store',
+        'provider': 'ECSDI Store',
+        'external': False,
+        'warehouse_managed': True,
+        'price': 29.9,
+        'tags': ['audio', 'bluetooth', 'altavoz']
+    },
+    {
+        'id': 'P1012',
+        'name': 'Set Cafes Especialidad 4 Origenes',
+        'brand': 'CasaViva',
+        'seller': 'HomePlus',
+        'provider': 'HomePlus',
+        'external': True,
+        'warehouse_managed': False,
+        'price': 27.5,
+        'tags': ['hogar', 'cocina', 'cafe']
+    },
+    {
+        'id': 'P1013',
+        'name': 'Lampara Escritorio LED Flex',
+        'brand': 'LumiHome',
+        'seller': 'ECSDI Store',
+        'provider': 'ECSDI Store',
+        'external': False,
+        'warehouse_managed': True,
+        'price': 34.25,
+        'tags': ['hogar', 'iluminacion', 'oficina']
+    },
+    {
+        'id': 'P1014',
+        'name': 'Guia Practica Multiagentes',
+        'brand': 'EdTech',
+        'seller': 'BookPlanet',
+        'provider': 'BookPlanet',
+        'external': True,
+        'warehouse_managed': False,
+        'price': 24.8,
+        'tags': ['libro', 'agentes', 'rdf']
     }
 ]
 

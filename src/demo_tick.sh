@@ -3,6 +3,7 @@
 set -u
 
 HOST="${1:-127.0.0.1}"
+WAIT_FOR_FEEDBACK_SECONDS="${WAIT_FOR_FEEDBACK_SECONDS:-30}"
 
 echo "Accelerating ECSDI demo timers on ${HOST}"
 
@@ -21,6 +22,12 @@ for port in 9030 9031 9032 9033; do
     curl -s "http://${HOST}:${port}/tick/envios"
     echo
 done
+
+if [[ "${WAIT_FOR_FEEDBACK_SECONDS}" -gt 0 ]]; then
+    echo
+    echo "Waiting ${WAIT_FOR_FEEDBACK_SECONDS}s so delivered purchases become feedback candidates"
+    sleep "${WAIT_FOR_FEEDBACK_SECONDS}"
+fi
 
 echo
 echo "Valorador 9050: Feedback timer up"

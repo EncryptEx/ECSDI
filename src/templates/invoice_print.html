@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Factura {{ invoice.invoice_id }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 32px; color: #111; }
+        header { border-bottom: 2px solid #111; padding-bottom: 12px; margin-bottom: 20px; }
+        h1 { margin: 0 0 8px 0; font-size: 24px; }
+        .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 24px; margin-bottom: 20px; }
+        .meta span { display: block; }
+        table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+        th, td { border: 1px solid #999; padding: 8px; text-align: left; }
+        th { background: #f1f1f1; }
+        .total { margin-top: 18px; text-align: right; font-size: 18px; font-weight: bold; }
+        .actions { margin-top: 24px; }
+        button { padding: 8px 12px; }
+        @media print {
+            .actions { display: none; }
+            body { margin: 0; }
+        }
+    </style>
+</head>
+<body>
+<header>
+    <h1>Factura de compra</h1>
+    <div>ECSDI Store</div>
+</header>
+
+<section class="meta">
+    <span><strong>Factura:</strong> {{ invoice.invoice_id }}</span>
+    <span><strong>Pedido:</strong> {{ invoice.order_id }}</span>
+    <span><strong>Fecha:</strong> {{ invoice.date }}</span>
+    <span><strong>Cliente:</strong> {{ invoice.client_id }}</span>
+    <span><strong>Direccion de entrega:</strong> {{ invoice.delivery_address }}</span>
+    <span><strong>IBAN:</strong> {{ invoice.client_iban }}</span>
+</section>
+
+<table>
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Producto</th>
+            <th>Marca</th>
+            <th>Vendedor</th>
+            <th>Cantidad</th>
+            <th>Precio unitario</th>
+            <th>Total linea</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in invoice['items'] %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ item['name'] }}</td>
+            <td>{{ item['brand'] }}</td>
+            <td>{{ item['seller'] }}</td>
+            <td>{{ item['quantity'] }}</td>
+            <td>{{ '%.2f' | format(item['unit_price']) }} EUR</td>
+            <td>{{ '%.2f' | format(item['line_total']) }} EUR</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="total">TOTAL: {{ '%.2f' | format(invoice.total) }} EUR</div>
+
+<div class="actions">
+    <button onclick="window.print()">Imprimir / Guardar PDF</button>
+</div>
+</body>
+</html>

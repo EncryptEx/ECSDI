@@ -114,7 +114,7 @@ def item_identity(item):
 
 def merge_purchase(existing, incoming):
     merged = dict(existing)
-    for key in ('id', 'client_id', 'client_iban', 'delivery_address'):
+    for key in ('id', 'client_id', 'client_iban', 'delivery_address', 'delivery_date', 'transportista', 'tracking_id'):
         if incoming.get(key):
             merged[key] = incoming[key]
 
@@ -244,6 +244,33 @@ def request_external_provider_payments(purchase):
         )
         ok = send_to_tesorero(graph) and ok
     return ok
+
+
+def notify_client_invoice(purchase, total, conversation_id=None):
+    addresses, error = query_directory_service('CLIENTE', all_agents=True)
+    if error:
+        log(f'CLIENTE not found for invoice notification: {error}')
+        return 0
+
+    graph = build_purchase_result(
+        True,
+        sender=log_prefix,
+        receiver='CLIENTE',
+        conversation_id=conversation_id,
+        total=total,
+        purchase=purchase
+    )
+    sent = 0
+    for address in addresses:
+        try:
+            response = send_graph_message(address, graph)
+            if response_ok(response):
+                sent += 1
+        except Exception as exc:
+            log(f'CLIENTE invoice notification failed at {address}: {exc}')
+    if sent:
+        log(f'Factura enviada a CLIENTE compra={purchase.get("id", "")} total={total:.2f}')
+    return sent
 
 
 def group_external_items_by_provider(items):
@@ -623,13 +650,15 @@ def message():
 
         store_completed_purchase(purchase)
         total = purchase_total(purchase)
+        notify_client_invoice(purchase, total, conversation_id=conversation_id)
         log(f'All products purchased successfully; total={total:.2f}')
         response = build_purchase_result(
             True,
             sender=log_prefix,
             receiver=sender,
             conversation_id=conversation_id,
-            total=total
+            total=total,
+            purchase=purchase
         )
     return serialize_graph(response)
 

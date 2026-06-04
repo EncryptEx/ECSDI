@@ -33,15 +33,40 @@ def set_tracer_url(url):
     _tracer_url = url
 
 
-def _fire_trace(from_agent, to_agent, msg_type, performative, ts, conv_id='', msg_name=''):
+def _fire_trace(from_agent, to_agent, msg_type, performative, ts, conv_id='', msg_name='', phase='request'):
     try:
         requests.get(
             _tracer_url + '/trace',
             params={'from': from_agent, 'to': to_agent, 'type': msg_type,
                     'performative': performative, 'ts': ts,
-                    'conversation_id': conv_id or '', 'msg_name': msg_name or ''},
+                    'conversation_id': conv_id or '', 'msg_name': msg_name or '',
+                    'phase': phase or ''},
             timeout=0.5
         )
+    except Exception:
+        pass
+
+
+def _trace_graph_packet(graph, phase='request'):
+    if not _tracer_url:
+        return
+    try:
+        props = get_message_properties(graph)
+        from_agent = message_sender(props)
+        to_agent = str(props.get('receiver', 'unknown'))
+        content = props['content']
+        content_types = [str(t).split('#')[-1] for t in graph.objects(content, RDF.type)]
+        msg_type = content_types[0] if content_types else 'Message'
+        performative = str(props.get('performative', '')).split('#')[-1]
+        conv_id = message_conversation(props) or ''
+        msg_name = first_literal(graph, content, ECSDI.nombreMensaje, '')
+        ts = _time.time()
+        _t = _threading.Thread(
+            target=_fire_trace,
+            args=(from_agent, to_agent, msg_type, performative, ts, conv_id, msg_name, phase),
+            daemon=True
+        )
+        _t.start()
     except Exception:
         pass
 
@@ -189,31 +214,16 @@ def first_bool(graph, subject, predicate, default=False):
 
 def send_graph_message(address, graph, timeout=None):
     if _tracer_url and not address.startswith(_tracer_url):
-        try:
-            props = get_message_properties(graph)
-            from_agent = message_sender(props)
-            to_agent = str(props.get('receiver', 'unknown'))
-            content = props['content']
-            content_types = [str(t).split('#')[-1] for t in graph.objects(content, RDF.type)]
-            msg_type = content_types[0] if content_types else 'Message'
-            performative = str(props.get('performative', '')).split('#')[-1]
-            conv_id = message_conversation(props) or ''
-            msg_name = first_literal(graph, content, ECSDI.nombreMensaje, '')
-            ts = _time.time()
-            _t = _threading.Thread(
-                target=_fire_trace,
-                args=(from_agent, to_agent, msg_type, performative, ts, conv_id, msg_name),
-                daemon=True
-            )
-            _t.start()
-        except Exception:
-            pass
+        _trace_graph_packet(graph, phase='request')
     response = requests.get(
         address + '/message',
         params={'message': serialize_graph(graph)},
         timeout=timeout
     )
-    return parse_graph(response.text)
+    response_graph = parse_graph(response.text)
+    if _tracer_url and not address.startswith(_tracer_url):
+        _trace_graph_packet(response_graph, phase='response')
+    return response_graph
 
 
 def build_status_response(sender, receiver, ok=True, text='OK', conversation_id=None):
@@ -328,6 +338,8 @@ def add_product(graph, product, subject=None):
         graph.add((subject, ECSDI.precioProducto, Literal(float(product.get('price')), datatype=XSD.float)))
     if product.get('rating') is not None:
         graph.add((subject, ECSDI.valoracionProducto, Literal(float(product.get('rating')), datatype=XSD.float)))
+    if product.get('recommendation_score') is not None:
+        graph.add((subject, ECSDI.puntuacionRecomendacion, Literal(float(product.get('recommendation_score')), datatype=XSD.float)))
     if product.get('external') is not None:
         graph.add((subject, ECSDI.esExterno, Literal(bool(product.get('external')), datatype=XSD.boolean)))
     if product.get('warehouse_managed') is not None:
@@ -351,6 +363,7 @@ def product_from_graph(graph, subject):
     provider = first_literal(graph, subject, ECSDI.nombreProveedor)
     price = first_float(graph, subject, ECSDI.precioProducto)
     rating = first_float(graph, subject, ECSDI.valoracionProducto)
+    recommendation_score = first_float(graph, subject, ECSDI.puntuacionRecomendacion)
     external = graph.value(subject, ECSDI.esExterno)
     warehouse_managed = graph.value(subject, ECSDI.gestionLogisticaPropia)
     tags = literal_values(graph, subject, ECSDI.caracteristicasProducto)
@@ -371,6 +384,8 @@ def product_from_graph(graph, subject):
         product['tags'] = tags
     if rating is not None:
         product['rating'] = rating
+    if recommendation_score is not None:
+        product['recommendation_score'] = recommendation_score
     if external is not None:
         product['external'] = bool(external.toPython()) if hasattr(external, 'toPython') else str(external).lower() == 'true'
     if warehouse_managed is not None:
@@ -601,6 +616,9 @@ def purchase_from_content(graph, content):
         'client_id': first_literal(graph, content, ECSDI.idCliente, ''),
         'client_iban': first_literal(graph, content, ECSDI.numeroIBAN, ''),
         'delivery_address': first_literal(graph, content, ECSDI.direccion, ''),
+        'delivery_date': first_literal(graph, content, ECSDI.fechaEntrega, ''),
+        'transportista': first_literal(graph, content, ECSDI.nombreTransportista, ''),
+        'tracking_id': first_literal(graph, content, ECSDI.idEnvio, ''),
         'items': []
     }
     if compra is None:
@@ -610,6 +628,9 @@ def purchase_from_content(graph, content):
         'client_id': first_literal(graph, compra, ECSDI.idCliente, purchase['client_id']),
         'client_iban': first_literal(graph, compra, ECSDI.numeroIBAN, purchase['client_iban']),
         'delivery_address': first_literal(graph, compra, ECSDI.direccion, purchase['delivery_address']),
+        'delivery_date': first_literal(graph, compra, ECSDI.fechaEntrega, purchase['delivery_date']),
+        'transportista': first_literal(graph, compra, ECSDI.nombreTransportista, purchase['transportista']),
+        'tracking_id': first_literal(graph, compra, ECSDI.idEnvio, purchase['tracking_id']),
         'items': line_items_from_content(graph, content)
     })
     return purchase
@@ -664,7 +685,7 @@ def availability_from_response(graph):
     return availability
 
 
-def build_purchase_result(ok, sender, receiver, conversation_id=None, total=0.0):
+def build_purchase_result(ok, sender, receiver, conversation_id=None, total=0.0, purchase=None):
     graph, content = build_message_with_content(
         ECSDI.ResultadoCompra,
         performative=ACL.inform if ok else ACL.refuse,
@@ -677,6 +698,16 @@ def build_purchase_result(ok, sender, receiver, conversation_id=None, total=0.0)
     graph.add((factura, ECSDI.precioTotalFactura, Literal(float(total), datatype=XSD.float)))
     graph.add((content, ECSDI.contiene_factura, factura))
     graph.add((content, ECSDI.existe, Literal(bool(ok), datatype=XSD.boolean)))
+    if purchase:
+        compra = add_purchase(graph, purchase)
+        graph.add((content, ECSDI.contiene_compra, compra))
+        graph.add((factura, ECSDI.contiene_compra, compra))
+        if purchase.get('id'):
+            graph.add((content, ECSDI.idCompra, Literal(purchase['id'])))
+        if purchase.get('client_id'):
+            graph.add((content, ECSDI.idCliente, Literal(purchase['client_id'])))
+        if purchase.get('delivery_address'):
+            graph.add((content, ECSDI.direccion, Literal(purchase['delivery_address'])))
     return graph
 
 
@@ -688,15 +719,26 @@ def purchase_result_total(graph, default=0.0):
     return first_float(graph, factura, ECSDI.precioTotalFactura, default)
 
 
-def build_shipping_notice(purchase, sender, receiver, transportista='Transportista demo',
-                          delivery_date='', tracking_id='', message=''):
-    graph, content = build_message_with_content(
-        ECSDI.EnvioDatosEnvio,
-        performative=ACL.inform,
-        sender=sender,
-        receiver=receiver,
-        message_name='datos-envio'
-    )
+def purchase_result_from_content(graph, content):
+    purchase = purchase_from_content(graph, content)
+    return {
+        'ok': first_bool(graph, content, ECSDI.existe, False),
+        'total': purchase_result_total(graph, 0.0),
+        'purchase_id': first_literal(graph, content, ECSDI.idCompra, purchase.get('id', '')),
+        'client_id': first_literal(graph, content, ECSDI.idCliente, purchase.get('client_id', '')),
+        'delivery_address': first_literal(graph, content, ECSDI.direccion, purchase.get('delivery_address', '')),
+        'purchase': purchase
+    }
+
+
+def purchase_result_from_graph(graph):
+    content = get_message_properties(graph)['content']
+    return purchase_result_from_content(graph, content)
+
+
+def add_shipping_notice_data(graph, content, purchase, transportista='Transportista demo',
+                             delivery_date='', tracking_id='', message=''):
+    graph.add((content, RDF.type, ECSDI.EnvioDatosEnvio))
     if purchase.get('id'):
         graph.add((content, ECSDI.idCompra, Literal(purchase['id'])))
     if purchase.get('client_id'):
@@ -713,6 +755,27 @@ def build_shipping_notice(purchase, sender, receiver, transportista='Transportis
         graph.add((content, ECSDI.mensajePersonalizado, Literal(message)))
     compra = add_purchase(graph, purchase)
     graph.add((content, ECSDI.contiene_compra, compra))
+    return content
+
+
+def build_shipping_notice(purchase, sender, receiver, transportista='Transportista demo',
+                          delivery_date='', tracking_id='', message=''):
+    graph, content = build_message_with_content(
+        ECSDI.EnvioDatosEnvio,
+        performative=ACL.inform,
+        sender=sender,
+        receiver=receiver,
+        message_name='datos-envio'
+    )
+    add_shipping_notice_data(
+        graph,
+        content,
+        purchase,
+        transportista=transportista,
+        delivery_date=delivery_date,
+        tracking_id=tracking_id,
+        message=message
+    )
     return graph
 
 
@@ -930,7 +993,8 @@ def provider_data_from_request(graph, content):
 
 
 def build_transfer_request(kind, amount, sender, receiver, participant='',
-                           purchase=None, provider='', iban='', message_name=None):
+                           purchase=None, provider='', iban='', message_name=None,
+                           shipping_notice=None):
     graph, content = build_message_with_content(
         ECSDI.PeticionSolicitarTransferencia,
         performative=ACL.request,
@@ -954,17 +1018,32 @@ def build_transfer_request(kind, amount, sender, receiver, participant='',
     if purchase:
         compra = add_purchase(graph, purchase)
         graph.add((content, ECSDI.contiene_compra, compra))
+    if shipping_notice:
+        notice = _uri(ECSDI, f'DatosEnvio_{purchase.get("id", "anon") if purchase else "anon"}')
+        notice_purchase = shipping_notice.get('purchase') or purchase or {}
+        add_shipping_notice_data(
+            graph,
+            notice,
+            notice_purchase,
+            transportista=shipping_notice.get('transportista', ''),
+            delivery_date=shipping_notice.get('delivery_date', ''),
+            tracking_id=shipping_notice.get('tracking_id', ''),
+            message=shipping_notice.get('message', '')
+        )
+        graph.add((content, ECSDI.contiene_datos_envio, notice))
     return graph
 
 
 def transfer_from_request(graph, content):
+    shipping_notice_node = graph.value(content, ECSDI.contiene_datos_envio)
     transfer = {
         'kind': first_literal(graph, content, ECSDI.tipoTransferencia, ''),
         'amount': first_float(graph, content, ECSDI.cantidadTransferencia, 0.0),
         'participant': first_literal(graph, content, ECSDI.participanteTransferencia, ''),
         'provider': first_literal(graph, content, ECSDI.nombreProveedor, ''),
         'iban': first_literal(graph, content, ECSDI.numeroIBAN, ''),
-        'purchase': purchase_from_content(graph, content)
+        'purchase': purchase_from_content(graph, content),
+        'shipping_notice': shipping_notice_from_content(graph, shipping_notice_node) if shipping_notice_node else {}
     }
     return transfer
 
@@ -1032,6 +1111,12 @@ def add_purchase(graph, purchase, subject=None):
         graph.add((subject, ECSDI.numeroIBAN, Literal(purchase['client_iban'])))
     if purchase.get('delivery_address'):
         graph.add((subject, ECSDI.direccion, Literal(purchase['delivery_address'])))
+    if purchase.get('delivery_date'):
+        graph.add((subject, ECSDI.fechaEntrega, Literal(purchase['delivery_date'], datatype=XSD.dateTime)))
+    if purchase.get('transportista'):
+        graph.add((subject, ECSDI.nombreTransportista, Literal(purchase['transportista'])))
+    if purchase.get('tracking_id'):
+        graph.add((subject, ECSDI.idEnvio, Literal(purchase['tracking_id'])))
     for item in purchase.get('items') or []:
         quantity = item.get('quantity', 1)
         price = item.get('line_price', item.get('price'))

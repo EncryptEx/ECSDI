@@ -21,8 +21,10 @@
         .invoice-meta { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 10px; font-size: .9em; color: #333; }
         .invoice-meta span strong { color: #1a7a4a; }
         .invoice-total { font-size: 1.1em; color: #1a7a4a; margin-top: 10px; }
-        .invoice-footer { margin-top: 10px; display: flex; gap: 10px; }
-        @media print { body * { visibility: hidden; } .invoice-box, .invoice-box * { visibility: visible; } .invoice-box { position: absolute; top: 0; left: 0; width: 100%; } }
+        .invoice-footer { margin-top: 10px; display: flex; gap: 10px; align-items: center; }
+        .invoice-link { display: inline-block; border: 1px solid #1a7a4a; border-radius: 4px; padding: 6px 10px; color: #1a7a4a; text-decoration: none; background: #fff; }
+        .recommendation-box { border-color: #7aa7ff; background: #f5f8ff; }
+        .recommendation-score { color: #2453a6; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -32,46 +34,69 @@
 <div class="msg">{{ iface_message }}</div>
 {% endif %}
 
-{% if last_invoice %}
-<div class="box invoice-box">
-    <h3 class="invoice-title">&#x1F9FE; Factura de compra</h3>
-    <div class="invoice-meta">
-        <span><strong>Pedido:</strong> {{ last_invoice.order_id }}</span>
-        <span><strong>Fecha:</strong> {{ last_invoice.date }}</span>
-        <span><strong>Cliente:</strong> {{ last_invoice.client_id }}</span>
-        <span><strong>Dirección de entrega:</strong> {{ last_invoice.delivery_address }}</span>
-        <span><strong>IBAN:</strong> {{ last_invoice.client_iban }}</span>
-    </div>
-    <table>
-        <thead>
-            <tr><th>#</th><th>Producto</th><th>Marca</th><th>Vendedor</th><th>Precio</th></tr>
-        </thead>
-        <tbody>
-            {% for item in last_invoice['items'] %}
-            <tr>
-                <td>{{ loop.index }}</td>
-                <td>{{ item['name'] }}</td>
-                <td>{{ item['brand'] }}</td>
-                <td>{{ item['seller'] }}</td>
-                <td>{{ '%.2f' | format(item['price']) }} EUR</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    <p class="invoice-total"><strong>TOTAL: {{ '%.2f' | format(last_invoice.total) }} EUR</strong></p>
-    <div class="invoice-footer">
-        <button onclick="window.print()">&#x1F5A8; Imprimir / Guardar PDF</button>
-    </div>
-</div>
-{% endif %}
-
 {% if notifications %}
 <div class="box">
     <h3>Notificaciones del sistema</h3>
     {% for notification in notifications %}
-    <div class="subbox">
+    <div class="subbox{% if notification.kind == 'factura' %} invoice-box{% endif %}{% if notification.kind == 'recomendacion' %} recommendation-box{% endif %}">
         <p><strong>{{ notification.title }}</strong> <span class="muted">({{ notification.status }})</span></p>
         <p>{{ notification.body }}</p>
+        {% if notification.kind == 'factura' %}
+        {% set invoice = notification.data %}
+        <div class="invoice-meta">
+            <span><strong>Pedido:</strong> {{ invoice.order_id }}</span>
+            <span><strong>Factura:</strong> {{ invoice.invoice_id }}</span>
+            <span><strong>Fecha:</strong> {{ invoice.date }}</span>
+            <span><strong>Cliente:</strong> {{ invoice.client_id }}</span>
+            <span><strong>Direccion:</strong> {{ invoice.delivery_address }}</span>
+            <span><strong>IBAN:</strong> {{ invoice.client_iban }}</span>
+        </div>
+        <table>
+            <thead>
+                <tr><th>#</th><th>Producto</th><th>Marca</th><th>Vendedor</th><th>Cantidad</th><th>Precio</th><th>Total linea</th></tr>
+            </thead>
+            <tbody>
+                {% for item in invoice['items'] %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td>{{ item['name'] }}</td>
+                    <td>{{ item['brand'] }}</td>
+                    <td>{{ item['seller'] }}</td>
+                    <td>{{ item['quantity'] }}</td>
+                    <td>{{ '%.2f' | format(item['unit_price']) }} EUR</td>
+                    <td>{{ '%.2f' | format(item['line_total']) }} EUR</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p class="invoice-total"><strong>TOTAL: {{ '%.2f' | format(invoice.total) }} EUR</strong></p>
+        <div class="invoice-footer">
+            <a class="invoice-link" href="{{ url_for('invoice_print', invoice_id=invoice.invoice_id) }}" target="_blank">Imprimir / Guardar PDF</a>
+        </div>
+        {% endif %}
+        {% if notification.kind == 'recomendacion' %}
+        {% set recommended = notification.data.products or [] %}
+        {% if recommended %}
+        <table>
+            <thead>
+                <tr><th>Producto recomendado</th><th>Marca</th><th>Vendedor</th><th>Tags</th><th>Precio</th><th>Valoracion</th><th>Score bayesiano</th></tr>
+            </thead>
+            <tbody>
+                {% for product in recommended %}
+                <tr>
+                    <td>{{ product.name or product.id }}</td>
+                    <td>{{ product.brand or '-' }}</td>
+                    <td>{{ product.seller or '-' }}</td>
+                    <td>{{ (product.tags or []) | join(', ') }}</td>
+                    <td>{% if product.price is defined %}{{ '%.2f' | format(product.price) }} EUR{% else %}-{% endif %}</td>
+                    <td>{% if product.rating is defined %}{{ '%.2f' | format(product.rating) }}{% else %}-{% endif %}</td>
+                    <td class="recommendation-score">{% if product.recommendation_score is defined %}{{ '%.2f' | format(product.recommendation_score) }}{% else %}-{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+        {% endif %}
         {% if notification.kind == 'feedback' and notification.status == 'pending' %}
         <form action="/message" method="post">
             <input type="hidden" name="action" value="submit_feedback">

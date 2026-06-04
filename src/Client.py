@@ -21,9 +21,10 @@ from Util import gethostname
 import argparse
 from FlaskServer import shutdown_server
 from requests import ConnectionError
-from flask import Flask, request, render_template, url_for, redirect
+from flask import Flask, request, render_template, url_for, redirect, abort
 import logging
 import socket
+from datetime import datetime
 
 __author__ = 'bejar'
 
@@ -43,6 +44,7 @@ from AgentCommunication import (
     message_conversation,
     message_sender,
     parse_graph,
+    purchase_result_from_content,
     purchase_result_total,
     products_from_search_response,
     recommendation_notice_from_content,
@@ -81,6 +83,8 @@ has_searched = False
 client_notifications = []
 notification_counter = 0
 last_invoice = None
+client_invoices = []
+invoice_counter = 0
 
 
 def empty_restriction_row():
@@ -113,6 +117,69 @@ def add_notification(kind, title, body, data=None, status='received'):
     client_notifications.insert(0, notification)
     log(f'Notification {notification["id"]}: {title}')
     return notification
+
+
+def mask_iban(iban):
+    if not iban:
+        return ''
+    return ('****' + iban[-4:]) if len(iban) >= 4 else iban
+
+
+def line_price(item):
+    return float(item.get('line_price', item.get('price', 0.0)) or 0.0)
+
+
+def invoice_line_total(item):
+    return line_price(item) * int(item.get('quantity', 1))
+
+
+def build_invoice_record(invoice_data):
+    global invoice_counter
+    purchase = invoice_data.get('purchase') or {}
+    invoice_counter += 1
+    invoice_id = f'F{invoice_counter:04}'
+    items = []
+    for item in purchase.get('items') or []:
+        line = dict(item)
+        line['quantity'] = int(line.get('quantity', 1))
+        line['unit_price'] = line_price(line)
+        line['line_total'] = invoice_line_total(line)
+        items.append(line)
+
+    total = float(invoice_data.get('total') or 0.0)
+    if total <= 0.0:
+        total = sum(item['line_total'] for item in items)
+
+    return {
+        'invoice_id': invoice_id,
+        'order_id': invoice_data.get('purchase_id') or purchase.get('id') or invoice_id,
+        'date': datetime.now().strftime('%d/%m/%Y %H:%M'),
+        'client_id': invoice_data.get('client_id') or purchase.get('client_id') or clientid or log_prefix,
+        'delivery_address': invoice_data.get('delivery_address') or purchase.get('delivery_address', ''),
+        'client_iban': mask_iban(purchase.get('client_iban', '')),
+        'items': items,
+        'total': total,
+    }
+
+
+def store_invoice_notification(invoice_data):
+    global last_invoice
+    invoice = build_invoice_record(invoice_data)
+    own_client_id = clientid or log_prefix
+    if invoice.get('client_id') and own_client_id and str(invoice['client_id']) != str(own_client_id):
+        return None
+
+    existing = next((item for item in client_invoices if item['order_id'] == invoice['order_id']), None)
+    if existing:
+        existing.update(invoice)
+        invoice = existing
+    else:
+        client_invoices.insert(0, invoice)
+    last_invoice = invoice
+
+    body = f'Pedido {invoice["order_id"]}: factura emitida por {invoice["total"]:.2f} EUR'
+    add_notification('factura', 'Factura de compra recibida', body, invoice)
+    return invoice
 
 
 def find_agent(agent_type, all_agents=False):
@@ -157,8 +224,23 @@ def receive_agent_message(graph):
         return build_status_response(clientid or log_prefix, sender, ok=True, text='DATOS ENVIO RECIBIDOS',
                                      conversation_id=conversation_id)
 
+    if has_type(graph, content, ECSDI.ResultadoCompra):
+        invoice_data = purchase_result_from_content(graph, content)
+        if not invoice_data.get('ok'):
+            return build_status_response(clientid or log_prefix, sender, ok=False, text='FACTURA RECHAZADA',
+                                         conversation_id=conversation_id)
+        invoice = store_invoice_notification(invoice_data)
+        text = 'FACTURA RECIBIDA' if invoice else 'FACTURA NO DESTINADA A ESTE CLIENTE'
+        return build_status_response(clientid or log_prefix, sender, ok=True, text=text,
+                                     conversation_id=conversation_id)
+
     if has_type(graph, content, ECSDI.PeticionFeedbackCliente):
         feedback = feedback_request_from_content(graph, content)
+        target_client = feedback.get('client_id') or ''
+        own_client = clientid or log_prefix
+        if target_client and own_client and str(target_client) != str(own_client):
+            return build_status_response(clientid or log_prefix, sender, ok=True, text='FEEDBACK NO DESTINADO',
+                                         conversation_id=conversation_id)
         product = feedback.get('product') or {}
         product_name = product.get('name') or product.get('id') or 'producto'
         add_notification(
@@ -173,11 +255,19 @@ def receive_agent_message(graph):
 
     if has_type(graph, content, ECSDI.EnvioSugerenciaProductoACliente):
         recommendation = recommendation_notice_from_content(graph, content)
+        target_client = recommendation.get('client_id') or ''
+        own_client = clientid or log_prefix
+        if target_client and own_client and str(target_client) != str(own_client):
+            return build_status_response(clientid or log_prefix, sender, ok=True, text='RECOMENDACIONES NO DESTINADAS',
+                                         conversation_id=conversation_id)
         product_names = [
             product.get('name') or product.get('id') or 'producto'
             for product in recommendation.get('products') or []
         ]
-        body = recommendation.get('message') or 'Productos recomendados: ' + ', '.join(product_names)
+        product_names_text = ', '.join(product_names)
+        body = recommendation.get('message') or 'Productos recomendados'
+        if product_names_text and product_names_text not in body:
+            body = f'{body}: {product_names_text}'
         add_notification('recomendacion', 'Recomendaciones recibidas', body, recommendation)
         return build_status_response(clientid or log_prefix, sender, ok=True, text='RECOMENDACIONES RECIBIDAS',
                                      conversation_id=conversation_id)
@@ -422,25 +512,7 @@ def message():
 
             order_id, status, invoice_total = send_message(products, delivery_address, client_iban)
             if status == 'SENT':
-                iface_message = f'Pedido {order_id} enviat correctament. Factura: {invoice_total:.2f} EUR'
-                from datetime import datetime
-                last_invoice = {
-                    'order_id': order_id,
-                    'date': datetime.now().strftime('%d/%m/%Y %H:%M'),
-                    'client_id': clientid or log_prefix,
-                    'delivery_address': delivery_address,
-                    'client_iban': ('****' + client_iban[-4:]) if len(client_iban) >= 4 else client_iban,
-                    'items': [
-                        {
-                            'name': item['product'].get('name', ''),
-                            'brand': item['product'].get('brand', ''),
-                            'seller': item['product'].get('seller', ''),
-                            'price': float(item['product'].get('price', 0.0) or 0.0),
-                        }
-                        for item in assistant_proposal
-                    ],
-                    'total': invoice_total,
-                }
+                iface_message = f'Pedido {order_id} enviat correctament. Ventas enviara la factura como notificacion.'
             else:
                 iface_message = f'Pedido {order_id} no enviat ({status})'
 
@@ -511,7 +583,16 @@ def iface():
         iface_message=iface_message,
         has_searched=has_searched,
         last_invoice=last_invoice,
+        invoice_history=client_invoices,
     )
+
+
+@app.route('/invoice/<invoice_id>')
+def invoice_print(invoice_id):
+    invoice = next((item for item in client_invoices if item['invoice_id'] == invoice_id), None)
+    if invoice is None:
+        abort(404)
+    return render_template('invoice_print.html', invoice=invoice)
 
 
 @app.route("/stop")

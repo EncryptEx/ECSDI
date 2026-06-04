@@ -22,6 +22,8 @@ HOSTADDR="127.0.0.1"
 # Prefer local env python, then active env python, then system python3
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/external_agents_config.json"
+FEEDBACK_DELAY_SECONDS="${ECSDI_FEEDBACK_DELAY_SECONDS:-30}"
+DELIVERY_DELAY_SECONDS="${ECSDI_DELIVERY_DELAY_SECONDS:-0}"
 if [[ -x "${SCRIPT_DIR}/env/bin/python" ]]; then
     PYTHON="${SCRIPT_DIR}/env/bin/python"
 elif [[ -x "${SCRIPT_DIR}/.venv/bin/python" ]]; then
@@ -81,7 +83,7 @@ start_agent "DirectoryService"  "$PYTHON" DirectoryService.py  --port 9000  --op
 start_agent "Logger"             "$PYTHON" Logger.py             --port 9100  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
 start_agent "Client"             "$PYTHON" Client.py             --port 9010  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
 start_agent "Catalogador"        "$PYTHON" Catalogador.py        --port 9040  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
-start_agent "Valorador"          "$PYTHON" Valorador.py          --port 9050  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
+start_agent "Valorador"          "$PYTHON" Valorador.py          --port 9050  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --feedback-delay-seconds "$FEEDBACK_DELAY_SECONDS"
 start_agent "EntidadBancaria"    "$PYTHON" EntidadBancaria.py    --port 9080  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --config "$CONFIG_FILE"
 start_agent "EmpresaVendedora HomePlus"   "$PYTHON" EmpresaVendedora.py --port 9090 --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --config "$CONFIG_FILE" --profile homeplus
 start_agent "EmpresaVendedora BagStore"   "$PYTHON" EmpresaVendedora.py --port 9091 --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --config "$CONFIG_FILE" --profile bagstore
@@ -92,10 +94,10 @@ start_agent "Transportista CheapMove"  "$PYTHON" Transportista.py  --port 9072  
 start_agent "Transportista PremiumLog" "$PYTHON" Transportista.py  --port 9073  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --config "$CONFIG_FILE" --profile premiumlog
 start_agent "Tesorero"           "$PYTHON" Tesorero.py           --port 9060  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
 start_agent "Ventas"             "$PYTHON" Ventas.py             --port 9020  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
-start_agent "CentroLogistico0"   "$PYTHON" CentroLogistico.py   --port 9030  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
-start_agent "CentroLogistico1"   "$PYTHON" CentroLogistico.py   --port 9031  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
-start_agent "CentroLogistico2"   "$PYTHON" CentroLogistico.py   --port 9032  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
-start_agent "CentroLogistico3"   "$PYTHON" CentroLogistico.py   --port 9033  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
+start_agent "CentroLogistico0"   "$PYTHON" CentroLogistico.py   --port 9030  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --delivery-delay-seconds "$DELIVERY_DELAY_SECONDS"
+start_agent "CentroLogistico1"   "$PYTHON" CentroLogistico.py   --port 9031  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --delivery-delay-seconds "$DELIVERY_DELAY_SECONDS"
+start_agent "CentroLogistico2"   "$PYTHON" CentroLogistico.py   --port 9032  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --delivery-delay-seconds "$DELIVERY_DELAY_SECONDS"
+start_agent "CentroLogistico3"   "$PYTHON" CentroLogistico.py   --port 9033  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --delivery-delay-seconds "$DELIVERY_DELAY_SECONDS"
 
 echo
 echo "Agents are running."

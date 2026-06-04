@@ -41,7 +41,6 @@ from AgentCommunication import (
     build_purchase_result,
     build_shipping_accept_offer_request,
     build_shipping_counter_offer_request,
-    build_shipping_notice,
     build_shipping_quote_request,
     build_status_response,
     build_transfer_request,
@@ -67,12 +66,17 @@ problems = {}
 probcounter = 0
 log_prefix = 'logistico'
 diraddress = ''
+DELIVERY_DELAY_SECONDS = int(os.environ.get('ECSDI_DELIVERY_DELAY_SECONDS', str(2 * 24 * 60 * 60)))
 WAREHOUSE_MANAGED_PRODUCTS = [
     'Auriculares Inalambricos SoundGo',
     'Teclado Mecanico K85',
     'Mouse Ergonomico MX Lite',
     'Monitor 27 IPS 2K',
     'Bombillas LED Pack 6',
+    'Webcam Full HD FocusCam',
+    'Hub USB-C 7 en 1',
+    'Altavoz Bluetooth Mini',
+    'Lampara Escritorio LED Flex',
 ]
 
 
@@ -293,42 +297,26 @@ def negotiate_transport(purchase):
     return best, offers
 
 
-def notify_clients_shipping(purchase, transport):
-    addresses, error = directory_addresses('CLIENTE', all_agents=True)
-    if error:
-        log(f'CLIENTE not found for shipping notice: {error}')
-        return 0
-
-    delivery_date = (datetime.now() + timedelta(days=2)).replace(microsecond=0).isoformat()
+def build_shipping_notice_payload(purchase, transport):
+    delivery_date = (datetime.now() + timedelta(seconds=DELIVERY_DELAY_SECONDS)).replace(microsecond=0).isoformat()
     tracking_id = f'{log_prefix}-{purchase.get("id", "compra")}'
-    graph = build_shipping_notice(
-        purchase,
-        sender=log_prefix,
-        receiver='CLIENTE',
-        transportista=transport.get('transportista') or 'Transportista asignado',
-        delivery_date=delivery_date,
-        tracking_id=tracking_id,
-        message=f'Datos de envio generados por el temporizador de lotes. Precio transporte: {transport.get("price", 0.0):.2f}'
-    )
-
-    sent = 0
-    for address in addresses:
-        try:
-            response = send_graph_message(address, graph)
-            if response_ok(response):
-                sent += 1
-        except Exception as exc:
-            log(f'CLIENTE shipping notice failed at {address}: {exc}')
-    return sent
+    return {
+        'purchase': purchase,
+        'transportista': transport.get('transportista') or 'Transportista asignado',
+        'delivery_date': delivery_date,
+        'tracking_id': tracking_id,
+        'message': f'Datos de envio generados por el temporizador de lotes. Precio transporte: {transport.get("price", 0.0):.2f}',
+    }
 
 
-def notify_financials_for_purchase(purchase):
+def notify_financials_for_purchase(purchase, transport=None):
     items = purchase.get('items') or []
     if not items:
         return True
 
     ok = True
     total = sum(item_total(item) for item in items)
+    shipping_notice = build_shipping_notice_payload(purchase, transport) if transport else None
     if total > 0:
         ok = send_to_tesorero(build_transfer_request(
             'lote',
@@ -337,7 +325,8 @@ def notify_financials_for_purchase(purchase):
             receiver='TESORERO',
             participant=purchase.get('client_id', ''),
             purchase=purchase,
-            message_name='cobrar-envios-lote'
+            message_name='cobrar-envios-lote',
+            shipping_notice=shipping_notice
         )) and ok
 
     for item in items:
@@ -477,15 +466,13 @@ def tick_envios():
             lot['transport'] = transport
             negotiated += 1
         if not lot.get('financials_sent'):
-            if not notify_financials_for_purchase(purchase):
+            if not notify_financials_for_purchase(purchase, transport):
                 log(f'Financial operations failed for lot compra={purchase.get("id", "")}')
                 continue
             lot['financials_sent'] = True
-        sent = notify_clients_shipping(purchase, transport)
-        if sent > 0:
-            lot['shipping_sent'] = True
-            processed += 1
-            notified += sent
+        lot['shipping_sent'] = True
+        processed += 1
+        notified += 1
     text = f'ENVIOS PROCESADOS={processed} NEGOCIACIONES={negotiated} NOTIFICACIONES={notified}'
     log(text)
     return text
@@ -510,6 +497,8 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, help="Puerto de comunicacion del agente")
     parser.add_argument('--dir', default=None, help="Direccion del servicio de directorio")
     parser.add_argument('--hostaddr', default=None, help="Direccion del agente anunciada al exterior (sobreescribe la deteccion automatica)")
+    parser.add_argument('--delivery-delay-seconds', type=int, default=None,
+                        help="Segundos hasta la fecha prevista de entrega (demo: 0)")
 
     # parsing de los parametros de la linea de comandos
     args = parser.parse_args()
@@ -530,6 +519,8 @@ if __name__ == '__main__':
         hostaddr = hostname = args.hostaddr if args.hostaddr else socket.gethostname()
 
     log_prefix = f'logistico-{port}'
+    if args.delivery_delay_seconds is not None:
+        DELIVERY_DELAY_SECONDS = max(0, int(args.delivery_delay_seconds))
     log(f'DS Hostname = {hostaddr}')
     log(f'Initial stock = {STOCK}')
 

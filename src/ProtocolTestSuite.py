@@ -8,6 +8,8 @@ servers manually.
 
 import sys
 
+from rdflib import RDF
+
 import Catalogador
 import CentroLogistico
 import Client
@@ -50,6 +52,7 @@ ADDRESS_BOOK = {
     'VALORADOR': ['valorador://test'],
     'VENTAS': ['ventas://test'],
 }
+MESSAGE_LOG = []
 
 
 def call_agent(app, graph):
@@ -59,9 +62,16 @@ def call_agent(app, graph):
 
 
 def fake_send_graph_message(address, graph, timeout=None):
+    props = get_message_properties(graph)
+    content = props['content']
+    MESSAGE_LOG.append({
+        'address': address,
+        'sender': str(props.get('sender') or ''),
+        'receiver': str(props.get('receiver') or ''),
+        'types': [str(t).split('#')[-1] for t in graph.objects(content, RDF.type)],
+    })
+
     if address == 'directory://test':
-        props = get_message_properties(graph)
-        content = props['content']
         agent_type = str(graph.value(content, DSO.AgentType) or '')
         return build_directory_search_response(
             ADDRESS_BOOK.get(agent_type, []),
@@ -111,10 +121,19 @@ def reset_state():
         'Mouse Ergonomico MX Lite': 2,
         'Monitor 27 IPS 2K': 1,
         'Bombillas LED Pack 6': 5,
+        'Webcam Full HD FocusCam': 3,
+        'Hub USB-C 7 en 1': 3,
+        'Altavoz Bluetooth Mini': 4,
+        'Lampara Escritorio LED Flex': 2,
     }
+    CentroLogistico.DELIVERY_DELAY_SECONDS = 0
     CentroLogistico.LOTES_PENDIENTES.clear()
+    Client.clientid = 'CLI-TEST'
     Client.client_notifications.clear()
+    Client.client_invoices.clear()
     Client.notification_counter = 0
+    Client.invoice_counter = 0
+    Client.last_invoice = None
     Tesorero.CLIENTES.clear()
     Tesorero.PROVEEDORES.clear()
     Tesorero.PAGOS_EN_CURSO.clear()
@@ -150,6 +169,8 @@ def reset_state():
     Ventas.devoluciones.clear()
     Valorador.FEEDBACK_REQUESTED.clear()
     Valorador.RECOMMENDATIONS_SENT.clear()
+    Valorador.FEEDBACK_DELAY_SECONDS = 0
+    MESSAGE_LOG.clear()
 
 
 def assert_ok(condition, message):
@@ -236,6 +257,20 @@ def test_mixed_purchase_flow():
     response = call_agent(Ventas.app, request)
     assert_ok(response_ok(response), 'Ventas processes mixed internal/hybrid/fully-external purchase')
     assert_ok(purchase_result_total(response) > 0.0, 'Ventas returns invoice total to the user')
+    assert_ok(
+        any(notification['kind'] == 'factura' for notification in Client.client_notifications),
+        'Client receives invoice as an agent notification'
+    )
+    assert_ok(Client.client_invoices, 'Client keeps invoice history in memory')
+    invoice_messages = [
+        message for message in MESSAGE_LOG
+        if message['address'] == 'client://test' and 'ResultadoCompra' in message['types']
+    ]
+    assert_ok(bool(invoice_messages), 'invoice RDF message reaches Client')
+    assert_ok(
+        all(message['sender'].startswith('ventas') for message in invoice_messages),
+        'Ventas sends ResultadoCompra invoice to Client'
+    )
     assert_ok(Tesorero.CLIENTES['CLI-TEST']['iban'] == 'IBAN-CLI-TEST', 'Tesorero stores client IBAN from user purchase')
     assert_ok(Tesorero.CLIENTES['CLI-TEST']['address'] == 'Carrer de la Prova 1', 'Tesorero stores client delivery address')
     assert_ok(CentroLogistico.STOCK['Auriculares Inalambricos SoundGo'] == 3, 'internal product stock is decremented')
@@ -267,6 +302,19 @@ def test_mixed_purchase_flow():
             for notification in Client.client_notifications if notification['kind'] == 'envio'),
         'Client shipping data includes selected transportista'
     )
+    assert_ok(
+        any(purchase.get('delivery_date') for purchase in Ventas.compras_finalizadas.values()),
+        'Ventas stores planned delivery date in completed purchases'
+    )
+    shipping_messages = [
+        message for message in MESSAGE_LOG
+        if message['address'] == 'client://test' and 'EnvioDatosEnvio' in message['types']
+    ]
+    assert_ok(bool(shipping_messages), 'shipping RDF message reaches Client')
+    assert_ok(
+        all(message['sender'].startswith('tesorero') for message in shipping_messages),
+        'Tesorero sends EnvioDatosEnvio to Client after bank confirmation'
+    )
 
 
 def test_history_and_feedback_queries():
@@ -286,6 +334,15 @@ def test_history_and_feedback_queries():
 
 
 def test_proactive_timer_notifications():
+    Valorador.FEEDBACK_DELAY_SECONDS = 999999
+    early_feedback_tick = Valorador.app.test_client().get('/tick/feedback')
+    assert_ok(early_feedback_tick.status_code == 200, 'Early feedback timer can run without sending premature requests')
+    assert_ok(
+        not any(notification['kind'] == 'feedback' for notification in Client.client_notifications),
+        'Client does not receive feedback before configured delivery delay has elapsed'
+    )
+
+    Valorador.FEEDBACK_DELAY_SECONDS = 0
     feedback_tick = Valorador.app.test_client().get('/tick/feedback')
     assert_ok(feedback_tick.status_code == 200, 'Feedback timer can be accelerated manually')
     assert_ok(
@@ -298,6 +355,20 @@ def test_proactive_timer_notifications():
     assert_ok(
         any(notification['kind'] == 'recomendacion' for notification in Client.client_notifications),
         'Client receives proactive recommendations'
+    )
+    recommendation = next(notification for notification in Client.client_notifications if notification['kind'] == 'recomendacion')
+    products = (recommendation.get('data') or {}).get('products') or []
+    assert_ok(
+        bool(products) and all(product.get('name') for product in products),
+        'Recommendation notification includes concrete product names'
+    )
+    assert_ok(
+        any(product.get('recommendation_score') is not None for product in products),
+        'Recommendation notification includes Bayesian recommendation scores'
+    )
+    assert_ok(
+        not any(str(product.get('name', '')).startswith('Producto recomendado') for product in products),
+        'Recommendation system does not emit placeholder product names'
     )
 
 

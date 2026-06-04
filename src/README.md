@@ -68,7 +68,9 @@ cd src/
 ./demo_tick.sh
 ```
 
-This triggers all local logistics centres to send pending shipping data to the client, then asks `Valorador` to send feedback requests and recommendations.
+This triggers all local logistics centres to negotiate pending shipments. After transport is accepted, each logistics centre sends the shipping data to `Tesorero` inside the lot charge request; `Tesorero` sends the final shipping notification to the client only after bank confirmation. The script then asks `Valorador` to send feedback requests and recommendations.
+
+Purchase invoices are delivered to `Client` as `ResultadoCompra` RDF/FIPA messages from `Ventas`. The web UI stores received invoices in memory as notifications and exposes `/invoice/<invoice_id>` for browser print / Save as PDF.
 
 To also trigger configured external product registration, run:
 
@@ -97,7 +99,7 @@ Run the in-process protocol game from the repository root:
 src/env/bin/python src/ProtocolTestSuite.py
 ```
 
-It covers internal products, external products stored in ECSDI logistics centres, fully external products, provider registration, external seller delegation, bank confirmation, transport negotiation, client charging, provider payment, feedback and purchase-history `query-ref` protocols.
+It covers internal products, external products stored in ECSDI logistics centres, fully external products, invoice notification, provider registration, external seller delegation, bank confirmation, transport negotiation, client charging, provider payment, feedback and purchase-history `query-ref` protocols.
 
 ## Setup
 
