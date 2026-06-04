@@ -59,6 +59,7 @@ from AgentCommunication import (
     serialize_graph,
     set_tracer_url,
 )
+from RuntimeInfo import render_runtime_info, rows_from_mapping, rows_from_sequence, table_section
 
 app = Flask(__name__)
 
@@ -643,6 +644,32 @@ def tick_recomendaciones():
     return text
 
 
+@app.route('/info')
+def info():
+    config_rows = [{
+        'feedback_delay_seconds': FEEDBACK_DELAY_SECONDS,
+        'bayes_prior_alpha': BAYES_PRIOR_ALPHA,
+        'bayes_prior_beta': BAYES_PRIOR_BETA,
+    }]
+    stats = [
+        {'label': 'Productos valorados', 'value': len(RATINGS)},
+        {'label': 'Feedback solicitado', 'value': len(FEEDBACK_REQUESTED)},
+        {'label': 'Clientes recomendados', 'value': len(RECOMMENDATIONS_SENT)},
+    ]
+    rating_rows = [
+        {'product_id': product_id, 'rating': round(rating, 2), 'events': len(RATING_EVENTS.get(product_id, []))}
+        for product_id, rating in sorted(RATINGS.items())
+    ]
+    sections = [
+        table_section('Configuracion', config_rows),
+        table_section('Valoraciones agregadas', rating_rows, empty='No hay valoraciones'),
+        table_section('Eventos de rating', rows_from_mapping(RATING_EVENTS, id_key='product_id'), empty='No hay eventos'),
+        table_section('Feedback ya solicitado', rows_from_sequence(sorted(FEEDBACK_REQUESTED)), empty='No hay feedback solicitado'),
+        table_section('Clientes con recomendaciones enviadas', rows_from_sequence(sorted(RECOMMENDATIONS_SENT)), empty='No hay recomendaciones enviadas'),
+    ]
+    return render_runtime_info('Valorador', log_prefix, stats=stats, sections=sections)
+
+
 @app.route('/stop')
 def stop():
     log('Stopping server')
@@ -691,8 +718,7 @@ if __name__ == '__main__':
         diraddress = args.dir
 
     agentadd = f'http://{hostaddr}:{port}'
-    agentid = hostaddr.split('.')[0] + '-' + str(port)
-    mess = build_directory_register(agentid, 'VALORADOR', agentadd, sender=agentid)
+    mess = build_directory_register(log_prefix, 'VALORADOR', agentadd, sender=log_prefix)
 
     done = False
     while not done:
@@ -703,10 +729,10 @@ if __name__ == '__main__':
             pass
 
     if response_ok(resp):
-        log(f'{agentid} successfully registered')
+        log(f'{log_prefix} successfully registered')
         # Try to connect to Logger for packet tracing
         try:
-            _lr = send_graph_message(diraddress, build_directory_search('LOGGER', sender=agentid))
+            _lr = send_graph_message(diraddress, build_directory_search('LOGGER', sender=log_prefix))
             if response_ok(_lr):
                 _la = directory_addresses_from_response(_lr)
                 if _la:
@@ -716,8 +742,8 @@ if __name__ == '__main__':
             pass
         app.run(host=hostname, port=port, debug=False, use_reloader=False)
 
-        log(f'{agentid} unregistering')
-        mess = build_directory_unregister(agentid, sender=agentid)
+        log(f'{log_prefix} unregistering')
+        mess = build_directory_unregister(log_prefix, sender=log_prefix)
         send_graph_message(diraddress, mess)
     else:
         log('Unable to register')

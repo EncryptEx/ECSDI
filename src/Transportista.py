@@ -35,6 +35,7 @@ from AgentCommunication import (
     set_tracer_url,
     shipping_request_from_content,
 )
+from RuntimeInfo import render_runtime_info, rows_from_mapping, rows_from_sequence, table_section
 
 
 app = Flask(__name__)
@@ -181,6 +182,28 @@ def stop():
     log('Stopping server')
     shutdown_server()
     return 'Parando Servidor'
+
+
+@app.route('/info')
+def info():
+    config_rows = [{
+        'transportista': TRANSPORT_NAME,
+        'base_price': BASE_PRICE,
+        'price_factor': PRICE_FACTOR,
+        'min_price': MIN_PRICE,
+        'concession_step': CONCESSION_STEP,
+    }]
+    stats = [
+        {'label': 'Transportista', 'value': TRANSPORT_NAME},
+        {'label': 'Regateos', 'value': len(NEGOTIATIONS)},
+        {'label': 'Envios aceptados', 'value': len(ACCEPTED)},
+    ]
+    sections = [
+        table_section('Configuracion de precios', config_rows),
+        table_section('Regateos por compra', rows_from_mapping(NEGOTIATIONS, id_key='purchase_id'), empty='No hay regateos registrados'),
+        table_section('Envios aceptados', rows_from_sequence(ACCEPTED), empty='No hay envios aceptados'),
+    ]
+    return render_runtime_info('Transportista', log_prefix, stats=stats, sections=sections)
 
 
 if __name__ == '__main__':

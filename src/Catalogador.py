@@ -55,6 +55,7 @@ from AgentCommunication import (
     serialize_graph,
     set_tracer_url,
 )
+from RuntimeInfo import rows_from_sequence, render_runtime_info, table_section
 
 app = Flask(__name__)
 
@@ -478,6 +479,23 @@ def message():
         return serialize_graph(response)
 
 
+@app.route('/info')
+def info():
+    internal = [p for p in catalog if not p.get('external')]
+    hybrid = [p for p in catalog if p.get('external') and p.get('warehouse_managed')]
+    fully_external = [p for p in catalog if p.get('external') and not p.get('warehouse_managed')]
+    stats = [
+        {'label': 'Productos catalogo', 'value': len(catalog)},
+        {'label': 'Internos', 'value': len(internal)},
+        {'label': 'Externos en almacen', 'value': len(hybrid)},
+        {'label': 'Fully external', 'value': len(fully_external)},
+    ]
+    sections = [
+        table_section('Catalogo completo', rows_from_sequence(catalog), empty='Catalogo vacio'),
+    ]
+    return render_runtime_info('Catalogador', log_prefix, stats=stats, sections=sections)
+
+
 @app.route('/stop')
 def stop():
     log('Stopping server')
@@ -522,8 +540,7 @@ if __name__ == '__main__':
         diraddress = args.dir
 
     agentadd = f'http://{hostaddr}:{port}'
-    agentid = hostaddr.split('.')[0] + '-' + str(port)
-    mess = build_directory_register(agentid, 'CATALOGADOR', agentadd, sender=agentid)
+    mess = build_directory_register(log_prefix, 'CATALOGADOR', agentadd, sender=log_prefix)
 
     done = False
     while not done:
@@ -534,10 +551,10 @@ if __name__ == '__main__':
             pass
 
     if response_ok(resp):
-        log(f'{agentid} successfully registered')
+        log(f'{log_prefix} successfully registered')
         # Try to connect to Logger for packet tracing
         try:
-            _lr = send_graph_message(diraddress, build_directory_search('LOGGER', sender=agentid))
+            _lr = send_graph_message(diraddress, build_directory_search('LOGGER', sender=log_prefix))
             if response_ok(_lr):
                 _la = directory_addresses_from_response(_lr)
                 if _la:
@@ -547,8 +564,8 @@ if __name__ == '__main__':
             pass
         app.run(host=hostname, port=port, debug=False, use_reloader=False)
 
-        log(f'{agentid} unregistering')
-        mess = build_directory_unregister(agentid, sender=agentid)
+        log(f'{log_prefix} unregistering')
+        mess = build_directory_unregister(log_prefix, sender=log_prefix)
         send_graph_message(diraddress, mess)
     else:
         log('Unable to register')

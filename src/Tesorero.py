@@ -45,6 +45,7 @@ from AgentCommunication import (
     set_tracer_url,
     transfer_from_request,
 )
+from RuntimeInfo import purchase_row, render_runtime_info, rows_from_mapping, table_section
 
 
 app = Flask(__name__)
@@ -56,6 +57,7 @@ CLIENTES = {}
 PROVEEDORES = {}
 PAGOS_EN_CURSO = {}
 REGISTRO_PAGOS = []
+TREASURY_IBAN = 'IBAN-ECSDI-TESORERIA'
 
 
 def log(msg):
@@ -190,6 +192,29 @@ def bank_address():
     return addresses[0], None
 
 
+def enrich_transfer_with_known_ibans(transfer):
+    kind = transfer.get('kind', '')
+    participant = transfer.get('participant', '')
+    provider = transfer.get('provider') or participant
+
+    if kind in ('cli', 'lote') and not transfer.get('iban'):
+        client_data = CLIENTES.get(participant) or {}
+        if client_data.get('iban'):
+            transfer['iban'] = client_data['iban']
+    if kind == 'ext' and not transfer.get('iban'):
+        provider_data = PROVEEDORES.get(provider) or {}
+        if provider_data.get('iban'):
+            transfer['iban'] = provider_data['iban']
+
+    if kind in ('cli', 'lote'):
+        transfer['origin_iban'] = transfer.get('iban') or participant
+        transfer['destination_iban'] = TREASURY_IBAN
+    elif kind in ('ext', 'dev'):
+        transfer['origin_iban'] = TREASURY_IBAN
+        transfer['destination_iban'] = transfer.get('iban') or provider or participant
+    return transfer
+
+
 def request_bank_confirmation(transfer):
     address, error = bank_address()
     if error:
@@ -197,6 +222,7 @@ def request_bank_confirmation(transfer):
         return False, 'ENTIDAD BANCARIA NO ENCONTRADA'
 
     try:
+        enrich_transfer_with_known_ibans(transfer)
         response = send_graph_message(
             address,
             build_bank_transfer_request(transfer, sender=log_prefix, receiver='ENTIDAD_BANCARIA')
@@ -227,6 +253,8 @@ def process_transfer(graph, content):
         'participant': transfer['participant'],
         'provider': transfer['provider'],
         'iban': transfer['iban'],
+        'origin_iban': transfer.get('origin_iban', ''),
+        'destination_iban': transfer.get('destination_iban', ''),
         'purchase': transfer['purchase'],
         'status': 'confirmed'
     }
@@ -295,6 +323,45 @@ def message():
     return serialize_graph(response)
 
 
+@app.route('/info')
+def info():
+    payment_rows = []
+    for payment_id, payment in PAGOS_EN_CURSO.items():
+        row = {
+            'payment_id': payment_id,
+            'kind': payment.get('kind', ''),
+            'amount': payment.get('amount', ''),
+            'participant': payment.get('participant', ''),
+            'provider': payment.get('provider', ''),
+            'iban': payment.get('iban', ''),
+            'origin_iban': payment.get('origin_iban', ''),
+            'destination_iban': payment.get('destination_iban', ''),
+            'status': payment.get('status', ''),
+        }
+        purchase = payment.get('purchase') or {}
+        row['purchase_id'] = purchase.get('id', '')
+        payment_rows.append(row)
+
+    stats = [
+        {'label': 'Clientes', 'value': len(CLIENTES)},
+        {'label': 'Proveedores', 'value': len(PROVEEDORES)},
+        {'label': 'Pagos en curso', 'value': len(PAGOS_EN_CURSO)},
+        {'label': 'Pagos historicos', 'value': len(REGISTRO_PAGOS)},
+    ]
+    completed_purchase_rows = [
+        purchase_row(payment.get('purchase') or {})
+        for payment in REGISTRO_PAGOS
+        if (payment.get('purchase') or {}).get('id')
+    ]
+    sections = [
+        table_section('Clientes y datos bancarios', rows_from_mapping(CLIENTES, id_key='client_id'), empty='No hay clientes registrados'),
+        table_section('Proveedores y datos bancarios', rows_from_mapping(PROVEEDORES, id_key='provider'), empty='No hay proveedores registrados'),
+        table_section('Pagos en curso / confirmados', payment_rows, empty='No hay pagos registrados'),
+        table_section('Compras asociadas a pagos', completed_purchase_rows, empty='No hay compras asociadas'),
+    ]
+    return render_runtime_info('Tesorero', log_prefix, stats=stats, sections=sections)
+
+
 @app.route('/stop')
 def stop():
     log('Stopping server')
@@ -339,8 +406,7 @@ if __name__ == '__main__':
         diraddress = args.dir
 
     agentadd = f'http://{hostaddr}:{port}'
-    agentid = hostaddr.split('.')[0] + '-' + str(port)
-    mess = build_directory_register(agentid, 'TESORERO', agentadd, sender=agentid)
+    mess = build_directory_register(log_prefix, 'TESORERO', agentadd, sender=log_prefix)
 
     done = False
     while not done:
@@ -351,10 +417,10 @@ if __name__ == '__main__':
             pass
 
     if response_ok(resp):
-        log(f'{agentid} successfully registered')
+        log(f'{log_prefix} successfully registered')
         # Try to connect to Logger for packet tracing
         try:
-            _lr = send_graph_message(diraddress, build_directory_search('LOGGER', sender=agentid))
+            _lr = send_graph_message(diraddress, build_directory_search('LOGGER', sender=log_prefix))
             if response_ok(_lr):
                 _la = directory_addresses_from_response(_lr)
                 if _la:
@@ -364,8 +430,8 @@ if __name__ == '__main__':
             pass
         app.run(host=hostname, port=port, debug=False, use_reloader=False)
 
-        log(f'{agentid} unregistering')
-        mess = build_directory_unregister(agentid, sender=agentid)
+        log(f'{log_prefix} unregistering')
+        mess = build_directory_unregister(log_prefix, sender=log_prefix)
         send_graph_message(diraddress, mess)
     else:
         log('Unable to register')

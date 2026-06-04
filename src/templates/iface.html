@@ -251,6 +251,18 @@
             <input type="text" value="{{ client_id }}" disabled>
         </div>
         <div class="field">
+            <label>Punto de entrega demo</label>
+            <select name="delivery_address_choice" onchange="setDeliveryAddress(this)">
+                <option value="">Direccion personalizada</option>
+                {% for location in delivery_locations %}
+                <option value="{{ location.id }}" data-address="{{ location.address }}"
+                    {% if delivery_address_choice == location.id %}selected{% endif %}>
+                    {{ location.label }} - {{ location.address }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
             <label>Direccion de entrega</label>
             <input type="text" name="delivery_address" value="{{ delivery_address }}" required>
         </div>
@@ -311,6 +323,15 @@ function removeRow(button) {
     }
     button.closest('tr').remove();
     refreshRowNumbers();
+}
+
+function setDeliveryAddress(select) {
+    const selected = select.options[select.selectedIndex];
+    const address = selected ? selected.getAttribute('data-address') : '';
+    const input = document.querySelector('input[name="delivery_address"]');
+    if (input && address) {
+        input.value = address;
+    }
 }
 
 refreshRowNumbers();

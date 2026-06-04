@@ -35,6 +35,7 @@ from AgentCommunication import (
     set_tracer_url,
     transfer_from_request,
 )
+from RuntimeInfo import render_runtime_info, table_section
 
 
 app = Flask(__name__)
@@ -56,6 +57,20 @@ def load_bank_config(path):
     with open(path, 'r', encoding='utf-8') as handle:
         data = json.load(handle)
     return data.get('entidad_bancaria', {})
+
+
+def bank_transfer_row(transfer):
+    return {
+        'kind': transfer.get('kind', ''),
+        'amount': transfer.get('amount', ''),
+        'origin_iban': transfer.get('origin_iban', ''),
+        'destination_iban': transfer.get('destination_iban', ''),
+        'participant': transfer.get('participant', ''),
+        'provider': transfer.get('provider', ''),
+        'iban': transfer.get('iban', ''),
+        'status': transfer.get('status', ''),
+        'purchase_id': (transfer.get('purchase') or {}).get('id', ''),
+    }
 
 
 @app.route('/message')
@@ -104,6 +119,23 @@ def stop():
     log('Stopping server')
     shutdown_server()
     return 'Parando Servidor'
+
+
+@app.route('/info')
+def info():
+    stats = [
+        {'label': 'Banco', 'value': BANK_NAME},
+        {'label': 'Failure rate', 'value': FAILURE_RATE},
+        {'label': 'Transferencias', 'value': len(TRANSFERENCIAS)},
+    ]
+    sections = [
+        table_section(
+            'Transferencias procesadas',
+            [bank_transfer_row(transfer) for transfer in TRANSFERENCIAS],
+            empty='No hay transferencias procesadas'
+        )
+    ]
+    return render_runtime_info('Entidad Bancaria', log_prefix, stats=stats, sections=sections)
 
 
 if __name__ == '__main__':

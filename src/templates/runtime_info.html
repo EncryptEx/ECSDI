@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ agent_name }} runtime</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #20242a;
+        }
+        header {
+            background: #172033;
+            color: white;
+            padding: 18px 24px;
+        }
+        h1 { margin: 0; font-size: 1.45rem; }
+        header p { margin: 6px 0 0; color: #cbd5e1; }
+        main { padding: 20px 24px 32px; }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+        .stat, section {
+            background: white;
+            border: 1px solid #d8dee8;
+            border-radius: 8px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+        }
+        .stat { padding: 12px 14px; }
+        .stat .label { color: #64748b; font-size: .78rem; text-transform: uppercase; }
+        .stat .value { margin-top: 5px; font-size: 1.35rem; font-weight: 700; }
+        section { margin-bottom: 18px; overflow: hidden; }
+        section h2 {
+            margin: 0;
+            padding: 12px 14px;
+            font-size: 1rem;
+            background: #eef2f7;
+            border-bottom: 1px solid #d8dee8;
+        }
+        .empty { padding: 14px; color: #64748b; }
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+        th, td {
+            border-bottom: 1px solid #e6ebf2;
+            padding: 9px 10px;
+            text-align: left;
+            vertical-align: top;
+        }
+        th {
+            background: #f8fafc;
+            color: #475569;
+            font-size: .75rem;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+        td {
+            max-width: 340px;
+            overflow-wrap: anywhere;
+        }
+        pre {
+            margin: 0;
+            padding: 14px;
+            overflow-x: auto;
+            font-size: .86rem;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+    </style>
+</head>
+<body>
+<header>
+    <h1>{{ agent_name }}</h1>
+    <p>{{ subtitle }} · {{ agent_id }}</p>
+</header>
+<main>
+    {% if stats %}
+    <div class="stats">
+        {% for stat in stats %}
+        <div class="stat">
+            <div class="label">{{ stat.label }}</div>
+            <div class="value">{{ stat.value }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% for section in sections %}
+    <section>
+        <h2>{{ section.title }}</h2>
+        {% if section.kind == 'table' %}
+            {% if section.rows %}
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        {% for column in section.columns %}
+                        <th>{{ column }}</th>
+                        {% endfor %}
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for row in section.rows %}
+                    <tr>
+                        {% for column in section.columns %}
+                        <td>{{ row.get(column, '') }}</td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="empty">{{ section.empty }}</div>
+            {% endif %}
+        {% elif section.kind == 'json' %}
+            {% if section.data and section.data != '{}' %}
+            <pre>{{ section.data }}</pre>
+            {% else %}
+            <div class="empty">{{ section.empty }}</div>
+            {% endif %}
+        {% endif %}
+    </section>
+    {% endfor %}
+</main>
+</body>
+</html>

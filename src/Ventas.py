@@ -50,6 +50,7 @@ from AgentCommunication import (
     first_literal,
     get_message_properties,
     has_type,
+    logistics_location_from_response,
     message_conversation,
     message_sender,
     parse_graph,
@@ -63,6 +64,8 @@ from AgentCommunication import (
     serialize_graph,
     set_tracer_url,
 )
+from GeoUtils import distance_from_address_km
+from RuntimeInfo import purchase_row, render_runtime_info, rows_from_sequence, table_section
 
 app = Flask(__name__)
 
@@ -530,11 +533,9 @@ def message():
         return serialize_graph(response)
 
     remaining_warehouse = dict(warehouse_products)
+    center_candidates = []
     log(f'Logistics centers available: {centros_logisticos}')
     for centro_addr in centros_logisticos:
-        if not remaining_warehouse:
-            break
-
         try:
             exists_request = build_line_request(
                 ECSDI.PeticionExisteLineaComanda,
@@ -557,7 +558,31 @@ def message():
             continue
 
         availability = availability_from_response(resp)
-        log(f'Center {centro_addr} availability: {availability}')
+        location = logistics_location_from_response(resp)
+        distance = distance_from_address_km(delivery_address, location)
+        center_candidates.append({
+            'address': centro_addr,
+            'availability': availability,
+            'location': location,
+            'distance_km': distance,
+        })
+        distance_label = f'{distance:.2f} km' if distance is not None else 'distancia desconocida'
+        log(
+            f'Center {centro_addr} availability: {availability}; '
+            f'location={location.get("address", "")}; distance={distance_label}'
+        )
+
+    center_candidates.sort(key=lambda item: (
+        item['distance_km'] if item['distance_km'] is not None else float('inf'),
+        item['address']
+    ))
+
+    for center in center_candidates:
+        if not remaining_warehouse:
+            break
+
+        centro_addr = center['address']
+        availability = center['availability']
 
         to_buy_here = {p: remaining_warehouse[p] for p, ok in availability.items() if ok and p in remaining_warehouse}
         if not to_buy_here:
@@ -565,7 +590,9 @@ def message():
             continue
 
         try:
-            log(f'Assigning lot in {centro_addr}: {to_buy_here}')
+            distance = center['distance_km']
+            distance_label = f'{distance:.2f} km' if distance is not None else 'distancia desconocida'
+            log(f'Assigning lot in {centro_addr} ({distance_label}): {to_buy_here}')
             assignment_payload = {}
             for product, quantity in to_buy_here.items():
                 item = dict(product_by_name.get(product.lower(), {'name': product, 'price': 0.0}))
@@ -663,6 +690,23 @@ def message():
     return serialize_graph(response)
 
 
+@app.route('/info')
+def info():
+    in_progress_rows = [purchase_row(purchase) for purchase in compras.values()]
+    completed_rows = [purchase_row(purchase) for purchase in compras_finalizadas.values()]
+    stats = [
+        {'label': 'Compras en proceso', 'value': len(compras)},
+        {'label': 'Compras finalizadas', 'value': len(compras_finalizadas)},
+        {'label': 'Devoluciones', 'value': len(devoluciones)},
+    ]
+    sections = [
+        table_section('Compras en proceso', in_progress_rows, empty='No hay compras en proceso'),
+        table_section('Compras finalizadas', completed_rows, empty='No hay compras finalizadas'),
+        table_section('Devoluciones', rows_from_sequence(devoluciones), empty='No hay devoluciones registradas'),
+    ]
+    return render_runtime_info('Ventas', log_prefix, stats=stats, sections=sections)
+
+
 @app.route("/stop")
 def stop():
     """
@@ -738,8 +782,7 @@ if __name__ == '__main__':
 
     # Registramos el solver aritmetico en el servicio de directorio
     solveradd = f'http://{hostaddr}:{port}'
-    solverid = hostaddr.split('.')[0] + '-' + str(port)
-    mess = build_directory_register(solverid, 'VENTAS', solveradd, sender=solverid)
+    mess = build_directory_register(log_prefix, 'VENTAS', solveradd, sender=log_prefix)
 
     done = False
     while not done:
@@ -750,10 +793,10 @@ if __name__ == '__main__':
             pass
 
     if response_ok(resp):
-        log(f'{solverid} successfully registered')
+        log(f'{log_prefix} successfully registered')
         # Try to connect to Logger for packet tracing
         try:
-            _lr = send_graph_message(diraddress, build_directory_search('LOGGER', sender=solverid))
+            _lr = send_graph_message(diraddress, build_directory_search('LOGGER', sender=log_prefix))
             if response_ok(_lr):
                 _la = directory_addresses_from_response(_lr)
                 if _la:
@@ -764,8 +807,8 @@ if __name__ == '__main__':
         # Ponemos en marcha el servidor Flask
         app.run(host=hostname, port=port, debug=False, use_reloader=False)
 
-        log(f'{solverid} unregistering')
-        mess = build_directory_unregister(solverid, sender=solverid)
+        log(f'{log_prefix} unregistering')
+        mess = build_directory_unregister(log_prefix, sender=log_prefix)
         send_graph_message(diraddress, mess)
     else:
         log('Unable to register')

@@ -284,6 +284,10 @@ if __name__ == '__main__':
 
     schedule = args.schedule
     log_prefix = f'directorio-{port}'
+    # Override the imported constant so response messages carry type-port ID
+    # matching the log_prefix convention used by all other agents.
+    global DIRECTORY_AGENT
+    DIRECTORY_AGENT = log_prefix
     log(f'DS Hostname = {hostaddr}, schedule={schedule}')
     # Ponemos en marcha el servidor Flask
     app.run(host=hostname, port=port, debug=False, use_reloader=False)

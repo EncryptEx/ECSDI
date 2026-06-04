@@ -29,6 +29,9 @@ import logging
 import os
 from datetime import datetime, timedelta
 
+from GeoUtils import location_for_logistics_port
+from RuntimeInfo import render_runtime_info, summarize_items, table_section
+
 __author__ = 'bejar'
 
 from AgentCommunication import (
@@ -67,6 +70,7 @@ probcounter = 0
 log_prefix = 'logistico'
 diraddress = ''
 DELIVERY_DELAY_SECONDS = int(os.environ.get('ECSDI_DELIVERY_DELAY_SECONDS', str(2 * 24 * 60 * 60)))
+CENTER_LOCATION = location_for_logistics_port(9030)
 WAREHOUSE_MANAGED_PRODUCTS = [
     'Auriculares Inalambricos SoundGo',
     'Teclado Mecanico K85',
@@ -393,7 +397,8 @@ def message():
             requested,
             sender=log_prefix,
             receiver=sender,
-            conversation_id=conversation_id
+            conversation_id=conversation_id,
+            center_location=CENTER_LOCATION
         )
         return serialize_graph(response)
 
@@ -414,8 +419,7 @@ def message():
             )
             return serialize_graph(response)
 
-        for product, quantity in products.items():
-            STOCK[product] = STOCK.get(product, 0) - int(quantity)
+        log('Stock check passed; stock is not decremented in demo mode')
         LOTES_PENDIENTES.append({
             'sender': sender,
             'products': dict(products),
@@ -478,6 +482,51 @@ def tick_envios():
     return text
 
 
+@app.route('/info')
+def info():
+    lot_rows = []
+    option_rows = []
+    for index, lot in enumerate(LOTES_PENDIENTES, 1):
+        purchase = lot.get('purchase') or {}
+        transport = lot.get('transport') or {}
+        lot_rows.append({
+            '#': index,
+            'purchase_id': purchase.get('id', ''),
+            'client_id': purchase.get('client_id', ''),
+            'delivery_address': purchase.get('delivery_address', ''),
+            'products': summarize_items(purchase.get('items') or []),
+            'financials_sent': lot.get('financials_sent', False),
+            'shipping_sent': lot.get('shipping_sent', False),
+            'transportista': transport.get('transportista', ''),
+            'transport_price': transport.get('price', ''),
+        })
+        for option in lot.get('transport_options') or []:
+            option_rows.append({
+                'purchase_id': purchase.get('id', ''),
+                'transportista': option.get('transportista', ''),
+                'price': option.get('price', ''),
+                'accepted': option.get('accepted', ''),
+                'final': option.get('final', ''),
+            })
+
+    stock_rows = [
+        {'product': product, 'units': units}
+        for product, units in sorted(STOCK.items())
+    ]
+    stats = [
+        {'label': 'Stock entries', 'value': len(STOCK)},
+        {'label': 'Lotes pendientes', 'value': len(LOTES_PENDIENTES)},
+        {'label': 'Direccion', 'value': CENTER_LOCATION.get('address', '')},
+    ]
+    sections = [
+        table_section('Ubicacion del centro', [CENTER_LOCATION]),
+        table_section('Stock demo', stock_rows, empty='Sin stock configurado'),
+        table_section('Lotes pendientes / enviados', lot_rows, empty='No hay lotes registrados'),
+        table_section('Ofertas de transportistas por lote', option_rows, empty='No hay negociaciones registradas'),
+    ]
+    return render_runtime_info('Centro Logistico', log_prefix, stats=stats, sections=sections)
+
+
 @app.route("/stop")
 def stop():
     """
@@ -499,6 +548,9 @@ if __name__ == '__main__':
     parser.add_argument('--hostaddr', default=None, help="Direccion del agente anunciada al exterior (sobreescribe la deteccion automatica)")
     parser.add_argument('--delivery-delay-seconds', type=int, default=None,
                         help="Segundos hasta la fecha prevista de entrega (demo: 0)")
+    parser.add_argument('--center-address', default=None, help="Direccion fisica del centro logistico")
+    parser.add_argument('--center-lat', type=float, default=None, help="Latitud del centro logistico")
+    parser.add_argument('--center-lon', type=float, default=None, help="Longitud del centro logistico")
 
     # parsing de los parametros de la linea de comandos
     args = parser.parse_args()
@@ -521,8 +573,17 @@ if __name__ == '__main__':
     log_prefix = f'logistico-{port}'
     if args.delivery_delay_seconds is not None:
         DELIVERY_DELAY_SECONDS = max(0, int(args.delivery_delay_seconds))
+    CENTER_LOCATION = location_for_logistics_port(port)
+    if args.center_address:
+        CENTER_LOCATION['address'] = args.center_address
+        CENTER_LOCATION['label'] = args.center_address
+    if args.center_lat is not None:
+        CENTER_LOCATION['lat'] = float(args.center_lat)
+    if args.center_lon is not None:
+        CENTER_LOCATION['lon'] = float(args.center_lon)
     log(f'DS Hostname = {hostaddr}')
     log(f'Initial stock = {STOCK}')
+    log(f'Center location = {CENTER_LOCATION}')
 
     if args.dir is None:
         raise NameError('A Directory Service addess is needed')
@@ -531,8 +592,7 @@ if __name__ == '__main__':
 
     # Registramos el solver aritmetico en el servicio de directorio
     solveradd = f'http://{hostaddr}:{port}'
-    solverid = hostaddr.split('.')[0] + '-' + str(port)
-    mess = build_directory_register(solverid, 'CENTRO_LOGISTICO', solveradd, sender=solverid)
+    mess = build_directory_register(log_prefix, 'CENTRO_LOGISTICO', solveradd, sender=log_prefix)
 
     done = False
     while not done:
@@ -543,10 +603,10 @@ if __name__ == '__main__':
             pass
 
     if response_ok(resp):
-        log(f'{solverid} successfully registered')
+        log(f'{log_prefix} successfully registered')
         # Try to connect to Logger for packet tracing
         try:
-            _lr = send_graph_message(diraddress, build_directory_search('LOGGER', sender=solverid))
+            _lr = send_graph_message(diraddress, build_directory_search('LOGGER', sender=log_prefix))
             if response_ok(_lr):
                 _la = directory_addresses_from_response(_lr)
                 if _la:
@@ -557,8 +617,8 @@ if __name__ == '__main__':
         # Ponemos en marcha el servidor Flask
         app.run(host=hostname, port=port, debug=False, use_reloader=False)
 
-        log(f'{solverid} unregistering')
-        mess = build_directory_unregister(solverid, sender=solverid)
+        log(f'{log_prefix} unregistering')
+        mess = build_directory_unregister(log_prefix, sender=log_prefix)
         send_graph_message(diraddress, mess)
     else:
         log('Unable to register')

@@ -38,6 +38,7 @@ from AgentCommunication import (
     serialize_graph,
     set_tracer_url,
 )
+from RuntimeInfo import purchase_row, render_runtime_info, rows_from_sequence, table_section
 
 
 app = Flask(__name__)
@@ -179,6 +180,29 @@ def stop():
     log('Stopping server')
     shutdown_server()
     return 'Parando Servidor'
+
+
+@app.route('/info')
+def info():
+    sales_rows = []
+    for sale in VENTAS_EXTERNAS:
+        purchase = sale.get('purchase') or {}
+        row = purchase_row(purchase)
+        row['provider'] = sale.get('provider', '')
+        sales_rows.append(row)
+
+    stats = [
+        {'label': 'Vendedor', 'value': SELLER_NAME},
+        {'label': 'IBAN', 'value': SELLER_IBAN},
+        {'label': 'Productos configurados', 'value': len(PRODUCTS)},
+        {'label': 'Ventas externas', 'value': len(VENTAS_EXTERNAS)},
+    ]
+    sections = [
+        table_section('Productos configurados para alta externa', rows_from_sequence(PRODUCTS), empty='No hay productos configurados'),
+        table_section('Ventas delegadas recibidas', sales_rows, empty='No hay ventas delegadas'),
+        table_section('Resultados de registro de productos', rows_from_sequence(REGISTRATION_RESULTS), empty='No hay registros ejecutados'),
+    ]
+    return render_runtime_info('Empresa Vendedora', log_prefix, stats=stats, sections=sections)
 
 
 if __name__ == '__main__':

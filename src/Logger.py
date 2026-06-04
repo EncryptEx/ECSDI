@@ -89,6 +89,7 @@ def trace():
     performative = request.args.get('performative', 'inform')
     conv_id = request.args.get('conversation_id', '')
     msg_name = request.args.get('msg_name', '')
+    phase = request.args.get('phase', '')
     ts_raw = request.args.get('ts', None)
     try:
         ts = float(ts_raw) if ts_raw else time.time()
@@ -104,6 +105,7 @@ def trace():
         'to': to_agent,
         'type': msg_type,
         'msg_name': msg_name,
+        'phase': phase,
         'performative': performative,
         'conversation_id': conv_id,
     })
@@ -113,7 +115,8 @@ def trace():
 @app.route('/api/messages')
 def api_messages():
     """Return the full trace log as JSON for the frontend."""
-    return jsonify({'messages': message_log})
+    ordered = sorted(message_log, key=lambda item: (item.get('ts', 0), item.get('id', 0)))
+    return jsonify({'messages': ordered})
 
 
 @app.route('/info')

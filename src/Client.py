@@ -25,6 +25,8 @@ from flask import Flask, request, render_template, url_for, redirect, abort
 import logging
 import socket
 from datetime import datetime
+from GeoUtils import DEMO_CLIENT_LOCATIONS
+from RuntimeInfo import render_runtime_info, rows_from_mapping, rows_from_sequence, table_section
 
 __author__ = 'bejar'
 
@@ -77,6 +79,7 @@ last_restrictions = [
     }
 ]
 last_delivery_address = ''
+last_delivery_address_choice = ''
 last_client_iban = ''
 iface_message = ''
 has_searched = False
@@ -411,6 +414,7 @@ def message():
     global assistant_proposal
     global last_restrictions
     global last_delivery_address
+    global last_delivery_address_choice
     global last_client_iban
     global has_searched
     global last_invoice
@@ -488,9 +492,17 @@ def message():
                 )
 
         elif action == 'confirm_proposal':
+            delivery_address_choice = request.form.get('delivery_address_choice', '').strip()
             delivery_address = request.form.get('delivery_address', '').strip()
+            selected_location = next(
+                (location for location in DEMO_CLIENT_LOCATIONS if location['id'] == delivery_address_choice),
+                None
+            )
+            if selected_location is not None:
+                delivery_address = selected_location['address']
             client_iban = request.form.get('client_iban', '').strip()
             last_delivery_address = delivery_address
+            last_delivery_address_choice = delivery_address_choice
             last_client_iban = client_iban
 
             if not assistant_proposal:
@@ -521,6 +533,7 @@ def message():
             assistant_proposal = []
             last_restrictions = [empty_restriction_row()]
             last_delivery_address = ''
+            last_delivery_address_choice = ''
             last_client_iban = ''
             has_searched = False
 
@@ -555,12 +568,30 @@ def message():
 
 @app.route('/info')
 def info():
-    """
-    Entrada que da informacion sobre el agente a traves de una pagina web
-    """
-    global problems
-
-    return render_template('clientinteractions.html', probs=problems)
+    stats = [
+        {'label': 'Cliente', 'value': clientid or log_prefix},
+        {'label': 'Pedidos enviados', 'value': len(problems)},
+        {'label': 'Notificaciones', 'value': len(client_notifications)},
+        {'label': 'Facturas', 'value': len(client_invoices)},
+    ]
+    proposal_rows = []
+    for item in assistant_proposal:
+        product = item.get('product') or {}
+        proposal_rows.append({
+            'row_index': item.get('row_index', ''),
+            'name': product.get('name', ''),
+            'brand': product.get('brand', ''),
+            'seller': product.get('seller', ''),
+            'price': product.get('price', ''),
+            'rating': product.get('rating', ''),
+        })
+    sections = [
+        table_section('Pedidos enviados desde la interfaz', rows_from_mapping(problems, id_key='order_id'), empty='No hay pedidos enviados'),
+        table_section('Notificaciones recibidas', rows_from_sequence(client_notifications), empty='No hay notificaciones'),
+        table_section('Facturas guardadas', rows_from_sequence(client_invoices), empty='No hay facturas'),
+        table_section('Propuesta actual del asistente', proposal_rows, empty='No hay propuesta activa'),
+    ]
+    return render_runtime_info('Cliente', clientid or log_prefix, stats=stats, sections=sections)
 
 
 @app.route('/iface')
@@ -577,6 +608,8 @@ def iface():
         proposal=assistant_proposal,
         proposal_total=proposal_total,
         delivery_address=last_delivery_address,
+        delivery_address_choice=last_delivery_address_choice,
+        delivery_locations=DEMO_CLIENT_LOCATIONS,
         client_iban=last_client_iban,
         client_id=clientid or log_prefix,
         notifications=client_notifications,

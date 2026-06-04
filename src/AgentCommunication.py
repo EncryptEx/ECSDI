@@ -47,13 +47,19 @@ def _fire_trace(from_agent, to_agent, msg_type, performative, ts, conv_id='', ms
         pass
 
 
-def _trace_graph_packet(graph, phase='request'):
+def _trace_graph_packet(graph, phase='request', dest_address=None):
     if not _tracer_url:
         return
     try:
         props = get_message_properties(graph)
         from_agent = message_sender(props)
         to_agent = str(props.get('receiver', 'unknown'))
+        # For outgoing requests, append the destination port so the tracer
+        # can distinguish multiple instances of the same agent type.
+        if dest_address and phase == 'request':
+            _m = re.search(r':(\d+)(?:/|$)', dest_address)
+            if _m:
+                to_agent = to_agent + '-' + _m.group(1)
         content = props['content']
         content_types = [str(t).split('#')[-1] for t in graph.objects(content, RDF.type)]
         msg_type = content_types[0] if content_types else 'Message'
@@ -214,7 +220,7 @@ def first_bool(graph, subject, predicate, default=False):
 
 def send_graph_message(address, graph, timeout=None):
     if _tracer_url and not address.startswith(_tracer_url):
-        _trace_graph_packet(graph, phase='request')
+        _trace_graph_packet(graph, phase='request', dest_address=address)
     response = requests.get(
         address + '/message',
         params={'message': serialize_graph(graph)},
@@ -643,7 +649,8 @@ def delivery_address_from_purchase(graph, content):
     return first_literal(graph, compra, ECSDI.direccion, '')
 
 
-def build_existence_response(availability, quantities, sender, receiver, conversation_id=None):
+def build_existence_response(availability, quantities, sender, receiver, conversation_id=None,
+                             center_location=None):
     graph, content = build_message_with_content(
         ECSDI.ResultadoExistenciaLineasComanda,
         performative=ACL.inform,
@@ -651,6 +658,15 @@ def build_existence_response(availability, quantities, sender, receiver, convers
         receiver=receiver,
         conversation_id=conversation_id
     )
+    if center_location:
+        if center_location.get('label'):
+            graph.add((content, ECSDI.nombreCentroLogistico, Literal(center_location['label'])))
+        if center_location.get('address'):
+            graph.add((content, ECSDI.direccion, Literal(center_location['address'])))
+        if center_location.get('lat') is not None:
+            graph.add((content, ECSDI.latitud, Literal(float(center_location['lat']), datatype=XSD.float)))
+        if center_location.get('lon') is not None:
+            graph.add((content, ECSDI.longitud, Literal(float(center_location['lon']), datatype=XSD.float)))
     for product_name, exists in availability.items():
         existencia = _uri(ECSDI, 'ExistenciaLineaComanda')
         line = _uri(ECSDI, 'LineaComanda')
@@ -683,6 +699,16 @@ def availability_from_response(graph):
         if key:
             availability[key] = exists
     return availability
+
+
+def logistics_location_from_response(graph):
+    content = get_message_properties(graph)['content']
+    return {
+        'label': first_literal(graph, content, ECSDI.nombreCentroLogistico, ''),
+        'address': first_literal(graph, content, ECSDI.direccion, ''),
+        'lat': first_float(graph, content, ECSDI.latitud),
+        'lon': first_float(graph, content, ECSDI.longitud),
+    }
 
 
 def build_purchase_result(ok, sender, receiver, conversation_id=None, total=0.0, purchase=None):
@@ -1042,6 +1068,8 @@ def transfer_from_request(graph, content):
         'participant': first_literal(graph, content, ECSDI.participanteTransferencia, ''),
         'provider': first_literal(graph, content, ECSDI.nombreProveedor, ''),
         'iban': first_literal(graph, content, ECSDI.numeroIBAN, ''),
+        'origin_iban': first_literal(graph, content, ECSDI.ibanOrigen, ''),
+        'destination_iban': first_literal(graph, content, ECSDI.ibanDestino, ''),
         'purchase': purchase_from_content(graph, content),
         'shipping_notice': shipping_notice_from_content(graph, shipping_notice_node) if shipping_notice_node else {}
     }
@@ -1069,6 +1097,10 @@ def build_bank_transfer_request(transfer, sender, receiver):
         graph.add((content, ECSDI.nombreProveedor, Literal(transfer['provider'])))
     if transfer.get('iban'):
         graph.add((content, ECSDI.numeroIBAN, Literal(transfer['iban'])))
+    if transfer.get('origin_iban'):
+        graph.add((content, ECSDI.ibanOrigen, Literal(transfer['origin_iban'])))
+    if transfer.get('destination_iban'):
+        graph.add((content, ECSDI.ibanDestino, Literal(transfer['destination_iban'])))
     if transfer.get('purchase'):
         compra = add_purchase(graph, transfer['purchase'])
         graph.add((content, ECSDI.contiene_compra, compra))
@@ -1094,6 +1126,10 @@ def build_bank_transfer_response(ok, transfer, sender, receiver, conversation_id
         graph.add((content, ECSDI.nombreProveedor, Literal(transfer['provider'])))
     if transfer.get('iban'):
         graph.add((content, ECSDI.numeroIBAN, Literal(transfer['iban'])))
+    if transfer.get('origin_iban'):
+        graph.add((content, ECSDI.ibanOrigen, Literal(transfer['origin_iban'])))
+    if transfer.get('destination_iban'):
+        graph.add((content, ECSDI.ibanDestino, Literal(transfer['destination_iban'])))
     if transfer.get('purchase'):
         compra = add_purchase(graph, transfer['purchase'])
         graph.add((content, ECSDI.contiene_compra, compra))
