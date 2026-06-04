@@ -8,24 +8,23 @@ servers manually.
 
 import sys
 
-from rdflib import Literal
-
 import Catalogador
 import CentroLogistico
 import Client
+import EmpresaVendedora
+import EntidadBancaria
 import Tesorero
+import Transportista
 import Valorador
 import Ventas
 from AgentCommunication import (
     ACL,
     DSO,
     ECSDI,
-    add_product,
     availability_from_response,
     build_directory_search_response,
     build_feedback_response,
     build_line_request,
-    build_message_with_content,
     build_purchase_request,
     build_user_purchases_request,
     build_week_purchases_request,
@@ -44,7 +43,10 @@ ADDRESS_BOOK = {
     'CATALOGADOR': ['catalogador://test'],
     'CENTRO_LOGISTICO': ['logistico://test'],
     'CLIENTE': ['client://test'],
+    'EMPRESA_VENDEDORA': ['empresa-vendedora://test'],
+    'ENTIDAD_BANCARIA': ['banco://test'],
     'TESORERO': ['tesorero://test'],
+    'TRANSPORTISTA': ['transportista://test'],
     'VALORADOR': ['valorador://test'],
     'VENTAS': ['ventas://test'],
 }
@@ -73,10 +75,16 @@ def fake_send_graph_message(address, graph, timeout=None):
         return call_agent(Catalogador.app, graph)
     if address == 'client://test':
         return call_agent(Client.app, graph)
+    if address == 'empresa-vendedora://test':
+        return call_agent(EmpresaVendedora.app, graph)
+    if address == 'banco://test':
+        return call_agent(EntidadBancaria.app, graph)
     if address == 'logistico://test':
         return call_agent(CentroLogistico.app, graph)
     if address == 'tesorero://test':
         return call_agent(Tesorero.app, graph)
+    if address == 'transportista://test':
+        return call_agent(Transportista.app, graph)
     if address == 'valorador://test':
         return call_agent(Valorador.app, graph)
     if address == 'ventas://test':
@@ -86,7 +94,7 @@ def fake_send_graph_message(address, graph, timeout=None):
 
 
 def patch_network():
-    for module in (Catalogador, CentroLogistico, Client, Tesorero, Valorador, Ventas):
+    for module in (Catalogador, CentroLogistico, Client, EmpresaVendedora, EntidadBancaria, Tesorero, Transportista, Valorador, Ventas):
         module.send_graph_message = fake_send_graph_message
         module.diraddress = 'directory://test'
 
@@ -111,6 +119,32 @@ def reset_state():
     Tesorero.PROVEEDORES.clear()
     Tesorero.PAGOS_EN_CURSO.clear()
     Tesorero.REGISTRO_PAGOS.clear()
+    EntidadBancaria.TRANSFERENCIAS.clear()
+    EntidadBancaria.FAILURE_RATE = 0.0
+    EmpresaVendedora.SELLER_NAME = 'HomePlus'
+    EmpresaVendedora.SELLER_IBAN = 'IBAN-HOMEPLUS-TEST'
+    EmpresaVendedora.PRODUCTS = [
+        {
+            'id': 'EXT-HOME-TEST',
+            'name': 'Robot Aspirador HomePlus Delegado',
+            'brand': 'HomePlus',
+            'seller': 'HomePlus',
+            'provider': 'HomePlus',
+            'external': True,
+            'warehouse_managed': False,
+            'price': 189.9,
+            'tags': ['hogar', 'externo'],
+        }
+    ]
+    EmpresaVendedora.VENTAS_EXTERNAS.clear()
+    EmpresaVendedora.REGISTRATION_RESULTS.clear()
+    Transportista.TRANSPORT_NAME = 'CheapMove Test'
+    Transportista.BASE_PRICE = 18.0
+    Transportista.PRICE_FACTOR = 1.0
+    Transportista.MIN_PRICE = 12.0
+    Transportista.CONCESSION_STEP = 2.0
+    Transportista.NEGOTIATIONS.clear()
+    Transportista.ACCEPTED.clear()
     Ventas.compras.clear()
     Ventas.compras_finalizadas.clear()
     Ventas.devoluciones.clear()
@@ -207,18 +241,31 @@ def test_mixed_purchase_flow():
     assert_ok(CentroLogistico.STOCK['Auriculares Inalambricos SoundGo'] == 3, 'internal product stock is decremented')
     assert_ok(CentroLogistico.STOCK['Teclado Mecanico K85'] == 2, 'hybrid product stock is decremented')
     assert_ok('Cafetera Espresso Compacta' not in CentroLogistico.STOCK, 'fully external product never enters logistics stock')
+    assert_ok(EmpresaVendedora.VENTAS_EXTERNAS, 'EmpresaVendedora receives delegated fully external sale')
 
     payment_kinds = [payment['kind'] for payment in Tesorero.REGISTRO_PAGOS]
-    assert_ok(payment_kinds.count('lote') >= 1, 'Tesorero records warehouse lot charge')
+    assert_ok(payment_kinds.count('lote') == 0, 'warehouse lot charge is not requested before transport assignment')
     assert_ok(payment_kinds.count('cli') >= 1, 'Tesorero records delegated external-sale client charge')
-    assert_ok(payment_kinds.count('ext') >= 2, 'Tesorero records provider payments for hybrid and fully external products')
+    assert_ok(payment_kinds.count('ext') == 1, 'Tesorero pays fully external provider before logistics timer')
+    bank_kinds = [transfer['kind'] for transfer in EntidadBancaria.TRANSFERENCIAS]
+    assert_ok(bank_kinds.count('cli') >= 1 and bank_kinds.count('ext') >= 1, 'EntidadBancaria confirms external sale transfers')
     assert_ok(Ventas.compras_finalizadas, 'Ventas keeps completed purchase history')
 
     tick_response = CentroLogistico.app.test_client().get('/tick/envios')
     assert_ok(tick_response.status_code == 200, 'Logistics shipping timer can be accelerated manually')
+    payment_kinds = [payment['kind'] for payment in Tesorero.REGISTRO_PAGOS]
+    assert_ok(payment_kinds.count('lote') >= 1, 'Tesorero records warehouse lot charge after transport assignment')
+    assert_ok(payment_kinds.count('ext') >= 2, 'Tesorero records provider payments for hybrid and fully external products')
+    assert_ok(Transportista.NEGOTIATIONS, 'Transportista participates in budget and counter-offer negotiation')
+    assert_ok(Transportista.ACCEPTED, 'CentroLogistico accepts the selected transport offer')
     assert_ok(
         any(notification['kind'] == 'envio' for notification in Client.client_notifications),
         'Client receives shipping data after lot timer'
+    )
+    assert_ok(
+        any((notification.get('data') or {}).get('transportista') == 'CheapMove Test'
+            for notification in Client.client_notifications if notification['kind'] == 'envio'),
+        'Client shipping data includes selected transportista'
     )
 
 
@@ -255,29 +302,23 @@ def test_proactive_timer_notifications():
 
 
 def test_external_product_registration():
-    graph, content = build_message_with_content(
-        ECSDI.PeticionNuevoProducto,
-        sender='empresa-externa',
-        receiver='CATALOGADOR',
-        message_name='recepcion-nuevo-producto'
-    )
-    product = add_product(graph, {
-        'id': 'EXT-TEST-01',
-        'name': 'Camara Accion Delegada',
-        'brand': 'ActionCam',
-        'seller': 'ActionWorld',
-        'provider': 'ActionWorld',
-        'external': True,
-        'warehouse_managed': False,
-        'price': 149.9,
-        'tags': ['video', 'deporte'],
-    })
-    graph.add((content, ECSDI.contiene_productos, product))
-    graph.add((content, ECSDI.nombreProveedor, Literal('ActionWorld')))
-    graph.add((content, ECSDI.numeroIBAN, Literal('IBAN-ACTIONWORLD')))
-
-    response = call_agent(Catalogador.app, graph)
-    assert_ok(response_ok(response), 'Catalogador registers a fully external product')
+    EmpresaVendedora.SELLER_NAME = 'ActionWorld'
+    EmpresaVendedora.SELLER_IBAN = 'IBAN-ACTIONWORLD'
+    EmpresaVendedora.PRODUCTS = [
+        {
+            'id': 'EXT-TEST-01',
+            'name': 'Camara Accion Delegada',
+            'brand': 'ActionCam',
+            'seller': 'ActionWorld',
+            'provider': 'ActionWorld',
+            'external': True,
+            'warehouse_managed': False,
+            'price': 149.9,
+            'tags': ['video', 'deporte'],
+        }
+    ]
+    response = EmpresaVendedora.app.test_client().get('/tick/nuevo-producto')
+    assert_ok(response.status_code == 200, 'EmpresaVendedora can proactively register a configured product')
     assert_ok(any(p['id'] == 'EXT-TEST-01' for p in Catalogador.catalog), 'registered external product is in catalog')
     assert_ok('ActionWorld' in Tesorero.PROVEEDORES, 'Catalogador forwards provider banking data to Tesorero')
 

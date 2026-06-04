@@ -23,6 +23,7 @@ from requests import ConnectionError
 from AgentCommunication import (
     ACL,
     ECSDI,
+    build_bank_transfer_request,
     build_completed_purchase_request,
     build_directory_register,
     build_directory_search,
@@ -37,6 +38,7 @@ from AgentCommunication import (
     parse_graph,
     provider_data_from_request,
     response_ok,
+    response_text,
     send_graph_message,
     serialize_graph,
     set_tracer_url,
@@ -109,8 +111,55 @@ def notify_completed_purchase(transfer):
         log(f'No se pudo notificar compra finalizada: {exc}')
 
 
+def bank_address():
+    if not diraddress:
+        return None, 'DIRECTORY NOT CONFIGURED'
+    try:
+        response = send_graph_message(
+            diraddress,
+            build_directory_search('ENTIDAD_BANCARIA', sender=log_prefix)
+        )
+    except Exception as exc:
+        return None, str(exc)
+
+    if not response_ok(response):
+        return None, response_text(response, 'NOT FOUND')
+
+    addresses = directory_addresses_from_response(response)
+    if not addresses:
+        return None, 'NOT FOUND'
+    return addresses[0], None
+
+
+def request_bank_confirmation(transfer):
+    address, error = bank_address()
+    if error:
+        log(f'ENTIDAD_BANCARIA no encontrada: {error}')
+        return False, 'ENTIDAD BANCARIA NO ENCONTRADA'
+
+    try:
+        response = send_graph_message(
+            address,
+            build_bank_transfer_request(transfer, sender=log_prefix, receiver='ENTIDAD_BANCARIA')
+        )
+    except Exception as exc:
+        log(f'Error solicitando transferencia bancaria: {exc}')
+        return False, 'ERROR TRANSFERENCIA BANCARIA'
+
+    if not response_ok(response):
+        return False, response_text(response, 'TRANSFERENCIA RECHAZADA')
+    return True, response_text(response, 'TRANSFERENCIA CONFIRMADA')
+
+
 def process_transfer(graph, content):
     transfer = transfer_from_request(graph, content)
+    if transfer['amount'] <= 0:
+        return False, 'IMPORTE INVALIDO'
+
+    ok, bank_text = request_bank_confirmation(transfer)
+    if not ok:
+        return False, bank_text
+
     payment_id = str(uuid4())
     payment = {
         'id': payment_id,
@@ -126,13 +175,13 @@ def process_transfer(graph, content):
     REGISTRO_PAGOS.append(payment)
     log(
         f'Transferencia {payment_id} tipo={payment["kind"]} '
-        f'importe={payment["amount"]:.2f} confirmada'
+        f'importe={payment["amount"]:.2f} confirmada por entidad bancaria'
     )
 
     if payment['kind'] in ('cli', 'lote'):
         notify_completed_purchase(transfer)
 
-    return True, 'TRANSFERENCIA CONFIRMADA'
+    return True, bank_text
 
 
 @app.route('/message')

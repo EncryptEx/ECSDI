@@ -35,6 +35,7 @@ from AgentCommunication import (
     build_directory_register,
     build_directory_search,
     build_directory_unregister,
+    build_external_sale_request,
     build_line_request,
     build_lot_assignment_request,
     build_product_info_request,
@@ -103,10 +104,36 @@ def is_warehouse_managed_product(item):
     return not is_external_product(item)
 
 
+def item_identity(item):
+    return (
+        str(item.get('id') or '').strip().lower(),
+        str(item.get('name') or '').strip().lower(),
+        str(item.get('provider') or item.get('seller') or '').strip().lower(),
+    )
+
+
+def merge_purchase(existing, incoming):
+    merged = dict(existing)
+    for key in ('id', 'client_id', 'client_iban', 'delivery_address'):
+        if incoming.get(key):
+            merged[key] = incoming[key]
+
+    items = [dict(item) for item in existing.get('items') or []]
+    seen = {item_identity(item) for item in items}
+    for item in incoming.get('items') or []:
+        identity = item_identity(item)
+        if identity not in seen:
+            items.append(dict(item))
+            seen.add(identity)
+    merged['items'] = items
+    return merged
+
+
 def store_completed_purchase(purchase):
     purchase_id = purchase.get('id') or str(uuid4())
     purchase['id'] = purchase_id
-    compras_finalizadas[purchase_id] = purchase
+    existing = compras_finalizadas.get(purchase_id)
+    compras_finalizadas[purchase_id] = merge_purchase(existing, purchase) if existing else purchase
     compras.pop(purchase_id, None)
     log(f'Compra finalizada guardada: {purchase_id}')
     return purchase_id
@@ -216,6 +243,49 @@ def request_external_provider_payments(purchase):
             message_name='pagar-esta-cantidad'
         )
         ok = send_to_tesorero(graph) and ok
+    return ok
+
+
+def group_external_items_by_provider(items):
+    grouped = {}
+    for item in items:
+        provider = item.get('provider') or item.get('seller') or ''
+        grouped.setdefault(provider, []).append(item)
+    return grouped
+
+
+def notify_external_seller(purchase):
+    addresses, error = query_directory_service('EMPRESA_VENDEDORA', all_agents=True)
+    if error:
+        log(f'EMPRESA_VENDEDORA not found: {error}')
+        return False
+
+    ok = True
+    grouped_items = group_external_items_by_provider(purchase.get('items') or [])
+    for provider, items in grouped_items.items():
+        provider_purchase = dict(purchase)
+        provider_purchase['items'] = items
+        delivered = False
+        for address in addresses:
+            try:
+                response = send_graph_message(
+                    address,
+                    build_external_sale_request(
+                        provider,
+                        provider_purchase,
+                        sender=log_prefix,
+                        receiver='EMPRESA_VENDEDORA'
+                    )
+                )
+            except Exception as exc:
+                log(f'EMPRESA_VENDEDORA communication failed at {address}: {exc}')
+                continue
+            if response_ok(response):
+                delivered = True
+                break
+        if not delivered:
+            log(f'No external seller accepted delegated sale for provider={provider}')
+        ok = delivered and ok
     return ok
 
 
@@ -523,8 +593,33 @@ def message():
                 'delivery_address': delivery_address,
                 'items': fully_external_items
             }
-            request_external_provider_payments(external_purchase)
-            request_client_charge(external_purchase)
+            if not notify_external_seller(external_purchase):
+                response = build_status_response(
+                    log_prefix,
+                    sender,
+                    ok=False,
+                    text='EMPRESA VENDEDORA EXTERNA NO DISPONIBLE',
+                    conversation_id=conversation_id
+                )
+                return serialize_graph(response)
+            if not request_external_provider_payments(external_purchase):
+                response = build_status_response(
+                    log_prefix,
+                    sender,
+                    ok=False,
+                    text='PAGO A VENDEDOR EXTERNO NO CONFIRMADO',
+                    conversation_id=conversation_id
+                )
+                return serialize_graph(response)
+            if not request_client_charge(external_purchase):
+                response = build_status_response(
+                    log_prefix,
+                    sender,
+                    ok=False,
+                    text='COBRO AL CLIENTE NO CONFIRMADO',
+                    conversation_id=conversation_id
+                )
+                return serialize_graph(response)
 
         store_completed_purchase(purchase)
         total = purchase_total(purchase)

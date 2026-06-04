@@ -39,13 +39,15 @@ from AgentCommunication import (
     build_directory_unregister,
     build_existence_response,
     build_purchase_result,
+    build_shipping_accept_offer_request,
+    build_shipping_counter_offer_request,
     build_shipping_notice,
+    build_shipping_quote_request,
     build_status_response,
     build_transfer_request,
     directory_addresses_from_response,
     get_message_properties,
     has_type,
-    line_items_from_content,
     message_conversation,
     message_sender,
     parse_graph,
@@ -56,6 +58,7 @@ from AgentCommunication import (
     send_graph_message,
     serialize_graph,
     set_tracer_url,
+    shipping_offer_from_response,
 )
 
 app = Flask(__name__)
@@ -159,7 +162,138 @@ def directory_addresses(agent_type, all_agents=False):
     return addresses, None
 
 
-def notify_clients_shipping(purchase):
+def lot_weight(purchase):
+    units = sum(int(item.get('quantity', 1)) for item in purchase.get('items') or []) or 1
+    return round(1.0 + units * 0.5, 2)
+
+
+def counter_offer_target(initial_price, current_price, round_index):
+    floor_target = initial_price * 0.55
+    step_target = initial_price - ((round_index + 1) * 2.0)
+    target = min(current_price - 0.01, max(floor_target, step_target))
+    return round(max(target, 0.01), 2)
+
+
+def negotiate_with_transportista(address, purchase):
+    weight = lot_weight(purchase)
+    try:
+        response = send_graph_message(
+            address,
+            build_shipping_quote_request(
+                purchase,
+                sender=log_prefix,
+                receiver='TRANSPORTISTA',
+                weight=weight
+            )
+        )
+    except Exception as exc:
+        log(f'TRANSPORTISTA quote failed at {address}: {exc}')
+        return None
+
+    if not response_ok(response):
+        log(f'TRANSPORTISTA quote refused at {address}: {response_text(response, "ERROR")}')
+        return None
+
+    offer = shipping_offer_from_response(response)
+    current_price = float(offer.get('price') or 0.0)
+    if current_price <= 0:
+        return None
+
+    initial_price = current_price
+    transportista = offer.get('transportista') or address
+    rounds = []
+
+    for round_index in range(8):
+        target = counter_offer_target(initial_price, current_price, round_index)
+        try:
+            counter_response = send_graph_message(
+                address,
+                build_shipping_counter_offer_request(
+                    purchase,
+                    target,
+                    sender=log_prefix,
+                    receiver='TRANSPORTISTA',
+                    weight=weight
+                )
+            )
+        except Exception as exc:
+            log(f'TRANSPORTISTA counter-offer failed at {address}: {exc}')
+            break
+
+        if not response_ok(counter_response):
+            log(f'TRANSPORTISTA counter-offer refused at {address}: {response_text(counter_response, "ERROR")}')
+            break
+
+        counter_offer = shipping_offer_from_response(counter_response)
+        new_price = float(counter_offer.get('price') or current_price)
+        rounds.append({'requested': target, 'response': new_price})
+        transportista = counter_offer.get('transportista') or transportista
+
+        if counter_offer.get('accepted'):
+            current_price = new_price
+            break
+
+        if round(new_price, 2) == round(current_price, 2):
+            break
+
+        current_price = new_price
+
+    return {
+        'address': address,
+        'transportista': transportista,
+        'price': round(current_price, 2),
+        'initial_price': initial_price,
+        'rounds': rounds,
+        'weight': weight,
+    }
+
+
+def accept_transport_offer(offer, purchase):
+    try:
+        response = send_graph_message(
+            offer['address'],
+            build_shipping_accept_offer_request(
+                purchase,
+                offer['price'],
+                sender=log_prefix,
+                receiver='TRANSPORTISTA',
+                transportista=offer.get('transportista', ''),
+                weight=offer.get('weight', 1.0)
+            )
+        )
+    except Exception as exc:
+        log(f'TRANSPORTISTA accept failed at {offer["address"]}: {exc}')
+        return False
+    return response_ok(response)
+
+
+def negotiate_transport(purchase):
+    addresses, error = directory_addresses('TRANSPORTISTA', all_agents=True)
+    if error:
+        log(f'TRANSPORTISTA not found for lot negotiation: {error}')
+        return None, []
+
+    offers = []
+    for address in addresses:
+        offer = negotiate_with_transportista(address, purchase)
+        if offer:
+            offers.append(offer)
+
+    if not offers:
+        return None, []
+
+    best = min(offers, key=lambda offer: offer['price'])
+    if not accept_transport_offer(best, purchase):
+        log(f'Best transport offer could not be accepted: {best}')
+        return None, offers
+    log(
+        f'Transport selected compra={purchase.get("id", "")} '
+        f'{best["transportista"]} price={best["price"]:.2f}'
+    )
+    return best, offers
+
+
+def notify_clients_shipping(purchase, transport):
     addresses, error = directory_addresses('CLIENTE', all_agents=True)
     if error:
         log(f'CLIENTE not found for shipping notice: {error}')
@@ -171,10 +305,10 @@ def notify_clients_shipping(purchase):
         purchase,
         sender=log_prefix,
         receiver='CLIENTE',
-        transportista=f'Transportista demo {log_prefix}',
+        transportista=transport.get('transportista') or 'Transportista asignado',
         delivery_date=delivery_date,
         tracking_id=tracking_id,
-        message='Datos de envio generados por el temporizador de lotes'
+        message=f'Datos de envio generados por el temporizador de lotes. Precio transporte: {transport.get("price", 0.0):.2f}'
     )
 
     sent = 0
@@ -188,16 +322,15 @@ def notify_clients_shipping(purchase):
     return sent
 
 
-def notify_financials_for_assigned_lot(graph, content):
-    purchase = purchase_from_content(graph, content)
-    purchase['items'] = purchase.get('items') or line_items_from_content(graph, content)
+def notify_financials_for_purchase(purchase):
     items = purchase.get('items') or []
     if not items:
-        return
+        return True
 
+    ok = True
     total = sum(item_total(item) for item in items)
     if total > 0:
-        send_to_tesorero(build_transfer_request(
+        ok = send_to_tesorero(build_transfer_request(
             'lote',
             total,
             sender=log_prefix,
@@ -205,7 +338,7 @@ def notify_financials_for_assigned_lot(graph, content):
             participant=purchase.get('client_id', ''),
             purchase=purchase,
             message_name='cobrar-envios-lote'
-        ))
+        )) and ok
 
     for item in items:
         if not is_external_item(item):
@@ -216,7 +349,7 @@ def notify_financials_for_assigned_lot(graph, content):
         provider = item.get('provider') or item.get('seller') or ''
         provider_purchase = dict(purchase)
         provider_purchase['items'] = [item]
-        send_to_tesorero(build_transfer_request(
+        ok = send_to_tesorero(build_transfer_request(
             'ext',
             amount,
             sender=log_prefix,
@@ -225,7 +358,8 @@ def notify_financials_for_assigned_lot(graph, content):
             provider=provider,
             purchase=provider_purchase,
             message_name='pagar-valor-producto'
-        ))
+        )) and ok
+    return ok
 
 
 @app.route("/message")
@@ -298,8 +432,10 @@ def message():
             'products': dict(products),
             'purchase': purchase_from_content(graph, content),
             'shipping_sent': False,
+            'financials_sent': False,
+            'transport': None,
+            'transport_options': [],
         })
-        notify_financials_for_assigned_lot(graph, content)
         response = build_purchase_result(
             True,
             sender=log_prefix,
@@ -327,16 +463,30 @@ def tick_envios():
     """
     processed = 0
     notified = 0
+    negotiated = 0
     for lot in LOTES_PENDIENTES:
         if lot.get('shipping_sent'):
             continue
         purchase = lot.get('purchase') or {'items': []}
-        sent = notify_clients_shipping(purchase)
+        transport = lot.get('transport')
+        if not transport:
+            transport, options = negotiate_transport(purchase)
+            lot['transport_options'] = options
+            if not transport:
+                continue
+            lot['transport'] = transport
+            negotiated += 1
+        if not lot.get('financials_sent'):
+            if not notify_financials_for_purchase(purchase):
+                log(f'Financial operations failed for lot compra={purchase.get("id", "")}')
+                continue
+            lot['financials_sent'] = True
+        sent = notify_clients_shipping(purchase, transport)
         if sent > 0:
             lot['shipping_sent'] = True
             processed += 1
             notified += sent
-    text = f'ENVIOS PROCESADOS={processed} NOTIFICACIONES={notified}'
+    text = f'ENVIOS PROCESADOS={processed} NEGOCIACIONES={negotiated} NOTIFICACIONES={notified}'
     log(text)
     return text
 

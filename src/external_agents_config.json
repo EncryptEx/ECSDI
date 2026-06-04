@@ -1,0 +1,113 @@
+{
+  "entidad_bancaria": {
+    "name": "Entidad Bancaria ECSDI Demo",
+    "failure_rate": 0.0
+  },
+  "transportistas": [
+    {
+      "profile": "rapidship",
+      "name": "RapidShip",
+      "port": 9071,
+      "base_price": 22.0,
+      "price_factor": 1.2,
+      "min_price": 16.0,
+      "concession_step": 2.0
+    },
+    {
+      "profile": "cheapmove",
+      "name": "CheapMove",
+      "port": 9072,
+      "base_price": 18.0,
+      "price_factor": 0.95,
+      "min_price": 12.0,
+      "concession_step": 1.5
+    },
+    {
+      "profile": "premiumlog",
+      "name": "PremiumLog",
+      "port": 9073,
+      "base_price": 30.0,
+      "price_factor": 1.35,
+      "min_price": 21.0,
+      "concession_step": 3.0
+    }
+  ],
+  "empresas_vendedoras": [
+    {
+      "profile": "homeplus",
+      "name": "HomePlus",
+      "port": 9090,
+      "iban": "IBAN-HOMEPLUS-0001",
+      "products": [
+        {
+          "id": "EXT-HOME-01",
+          "name": "Robot Aspirador HomePlus Delegado",
+          "brand": "HomePlus",
+          "seller": "HomePlus",
+          "provider": "HomePlus",
+          "external": true,
+          "warehouse_managed": false,
+          "price": 189.9,
+          "tags": ["hogar", "limpieza", "externo"]
+        }
+      ]
+    },
+    {
+      "profile": "bagstore",
+      "name": "BagStore",
+      "port": 9091,
+      "iban": "IBAN-BAGSTORE-0002",
+      "products": [
+        {
+          "id": "EXT-BAG-01",
+          "name": "Maleta Cabina BagStore Delegada",
+          "brand": "UrbanTrail",
+          "seller": "BagStore",
+          "provider": "BagStore",
+          "external": true,
+          "warehouse_managed": false,
+          "price": 72.5,
+          "tags": ["viaje", "maleta", "externo"]
+        }
+      ]
+    },
+    {
+      "profile": "bookplanet",
+      "name": "BookPlanet",
+      "port": 9092,
+      "iban": "IBAN-BOOKPLANET-0003",
+      "products": [
+        {
+          "id": "EXT-BOOK-01",
+          "name": "Manual Avanzado RDF para Agentes",
+          "brand": "EdTech",
+          "seller": "BookPlanet",
+          "provider": "BookPlanet",
+          "external": true,
+          "warehouse_managed": false,
+          "price": 42.0,
+          "tags": ["libro", "rdf", "agentes"]
+        }
+      ]
+    },
+    {
+      "profile": "techhub",
+      "name": "TechHub",
+      "port": 9093,
+      "iban": "IBAN-TECHHUB-0004",
+      "products": [
+        {
+          "id": "EXT-TECH-01",
+          "name": "Dock USB-C TechHub Gestionado",
+          "brand": "TechHub",
+          "seller": "TechHub",
+          "provider": "TechHub",
+          "external": true,
+          "warehouse_managed": true,
+          "price": 64.95,
+          "tags": ["usb-c", "oficina", "gestion-propia"]
+        }
+      ]
+    }
+  ]
+}

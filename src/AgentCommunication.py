@@ -730,6 +730,116 @@ def shipping_notice_from_content(graph, content):
     }
 
 
+def build_external_sale_request(provider, purchase, sender, receiver):
+    graph, content = build_message_with_content(
+        ECSDI.PeticionNuevaVentaExterna,
+        performative=ACL.request,
+        sender=sender,
+        receiver=receiver,
+        message_name='Comunicar venta externa'
+    )
+    if provider:
+        graph.add((content, ECSDI.nombreProveedor, Literal(provider)))
+    if purchase:
+        compra = add_purchase(graph, purchase)
+        graph.add((content, ECSDI.contiene_compra, compra))
+    return graph
+
+
+def external_sale_from_content(graph, content):
+    return {
+        'provider': first_literal(graph, content, ECSDI.nombreProveedor, ''),
+        'purchase': purchase_from_content(graph, content)
+    }
+
+
+def build_shipping_quote_request(purchase, sender, receiver, weight=1.0):
+    graph, content = build_message_with_content(
+        ECSDI.PeticionPresupuestoEnvioLote,
+        performative=ACL.request,
+        sender=sender,
+        receiver=receiver,
+        message_name='Solicitar presupuesto'
+    )
+    graph.add((content, ECSDI.pesoLote, Literal(float(weight), datatype=XSD.float)))
+    if purchase.get('delivery_address'):
+        graph.add((content, ECSDI.direccion, Literal(purchase['delivery_address'])))
+    compra = add_purchase(graph, purchase)
+    graph.add((content, ECSDI.contiene_compra, compra))
+    return graph
+
+
+def build_shipping_counter_offer_request(purchase, offer, sender, receiver, weight=1.0):
+    graph, content = build_message_with_content(
+        ECSDI.PeticionContraOfertaLote,
+        performative=ACL.request,
+        sender=sender,
+        receiver=receiver,
+        message_name='Enviar contraoferta'
+    )
+    graph.add((content, ECSDI.precioOfertaTransporte, Literal(float(offer), datatype=XSD.float)))
+    graph.add((content, ECSDI.pesoLote, Literal(float(weight), datatype=XSD.float)))
+    if purchase.get('delivery_address'):
+        graph.add((content, ECSDI.direccion, Literal(purchase['delivery_address'])))
+    compra = add_purchase(graph, purchase)
+    graph.add((content, ECSDI.contiene_compra, compra))
+    return graph
+
+
+def build_shipping_accept_offer_request(purchase, offer, sender, receiver, transportista='', weight=1.0):
+    graph, content = build_message_with_content(
+        ECSDI.PeticionAceptarOfertaLote,
+        performative=ACL.request,
+        sender=sender,
+        receiver=receiver,
+        message_name='Aceptar oferta'
+    )
+    graph.add((content, ECSDI.precioOfertaTransporte, Literal(float(offer), datatype=XSD.float)))
+    graph.add((content, ECSDI.pesoLote, Literal(float(weight), datatype=XSD.float)))
+    if transportista:
+        graph.add((content, ECSDI.nombreTransportista, Literal(transportista)))
+    compra = add_purchase(graph, purchase)
+    graph.add((content, ECSDI.contiene_compra, compra))
+    return graph
+
+
+def shipping_request_from_content(graph, content):
+    return {
+        'purchase': purchase_from_content(graph, content),
+        'weight': first_float(graph, content, ECSDI.pesoLote, 1.0),
+        'counter_offer': first_float(graph, content, ECSDI.precioOfertaTransporte),
+        'delivery_address': first_literal(graph, content, ECSDI.direccion, ''),
+        'transportista': first_literal(graph, content, ECSDI.nombreTransportista, '')
+    }
+
+
+def build_shipping_offer_response(price, transportista, sender, receiver, conversation_id=None,
+                                  accepted=False, final=False, text='OFERTA'):
+    graph, content = build_message_with_content(
+        ECSDI.RespuestaContraOferta if accepted or final else ECSDI.RespuestaSolicitudPresupuesto,
+        performative=ACL.inform,
+        sender=sender,
+        receiver=receiver,
+        conversation_id=conversation_id,
+        message_name='Recibir respuesta contraoferta' if accepted or final else 'Recibir presupuesto oferta'
+    )
+    graph.add((content, ECSDI.precioOfertaTransporte, Literal(float(price), datatype=XSD.float)))
+    graph.add((content, ECSDI.nombreTransportista, Literal(transportista)))
+    graph.add((content, ECSDI.resultado, Literal(text)))
+    graph.add((content, ECSDI.existe, Literal(bool(accepted), datatype=XSD.boolean)))
+    return graph
+
+
+def shipping_offer_from_response(graph):
+    content = get_message_properties(graph)['content']
+    return {
+        'price': first_float(graph, content, ECSDI.precioOfertaTransporte, 0.0),
+        'transportista': first_literal(graph, content, ECSDI.nombreTransportista, ''),
+        'accepted': first_bool(graph, content, ECSDI.existe, False),
+        'text': first_literal(graph, content, ECSDI.resultado, '')
+    }
+
+
 def build_product_info_request(products, sender, receiver):
     return build_line_request(
         ECSDI.PeticionInfoProductosComprados,
@@ -857,6 +967,58 @@ def transfer_from_request(graph, content):
         'purchase': purchase_from_content(graph, content)
     }
     return transfer
+
+
+def build_bank_transfer_request(transfer, sender, receiver):
+    graph, content = build_message_with_content(
+        ECSDI.PeticionBancariaDeTransferencia,
+        performative=ACL.request,
+        sender=sender,
+        receiver=receiver,
+        message_name={
+            'cli': 'Solicitar cobro',
+            'lote': 'Solicitar cobro',
+            'ext': 'Solicitar pago a vendedor ext',
+            'dev': 'Solicitar devolucion'
+        }.get(transfer.get('kind'), 'Solicitar transferencia bancaria')
+    )
+    graph.add((content, ECSDI.tipoTransferencia, Literal(transfer.get('kind', ''))))
+    graph.add((content, ECSDI.cantidadTransferencia, Literal(float(transfer.get('amount', 0.0)), datatype=XSD.float)))
+    if transfer.get('participant'):
+        graph.add((content, ECSDI.participanteTransferencia, Literal(transfer['participant'])))
+    if transfer.get('provider'):
+        graph.add((content, ECSDI.nombreProveedor, Literal(transfer['provider'])))
+    if transfer.get('iban'):
+        graph.add((content, ECSDI.numeroIBAN, Literal(transfer['iban'])))
+    if transfer.get('purchase'):
+        compra = add_purchase(graph, transfer['purchase'])
+        graph.add((content, ECSDI.contiene_compra, compra))
+    return graph
+
+
+def build_bank_transfer_response(ok, transfer, sender, receiver, conversation_id=None, text='TRANSFERENCIA CONFIRMADA'):
+    graph, content = build_message_with_content(
+        ECSDI.RespuestaBancariaTransferencia,
+        performative=ACL.inform if ok else ACL.refuse,
+        sender=sender,
+        receiver=receiver,
+        conversation_id=conversation_id,
+        message_name='Recibir confirmacion transferencia'
+    )
+    graph.add((content, ECSDI.existe, Literal(bool(ok), datatype=XSD.boolean)))
+    graph.add((content, ECSDI.resultado, Literal(text)))
+    graph.add((content, ECSDI.tipoTransferencia, Literal(transfer.get('kind', ''))))
+    graph.add((content, ECSDI.cantidadTransferencia, Literal(float(transfer.get('amount', 0.0)), datatype=XSD.float)))
+    if transfer.get('participant'):
+        graph.add((content, ECSDI.participanteTransferencia, Literal(transfer['participant'])))
+    if transfer.get('provider'):
+        graph.add((content, ECSDI.nombreProveedor, Literal(transfer['provider'])))
+    if transfer.get('iban'):
+        graph.add((content, ECSDI.numeroIBAN, Literal(transfer['iban'])))
+    if transfer.get('purchase'):
+        compra = add_purchase(graph, transfer['purchase'])
+        graph.add((content, ECSDI.contiene_compra, compra))
+    return graph
 
 
 def add_purchase(graph, purchase, subject=None):

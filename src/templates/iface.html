@@ -36,15 +36,15 @@
 <div class="box invoice-box">
     <h3 class="invoice-title">&#x1F9FE; Factura de compra</h3>
     <div class="invoice-meta">
-        <span><strong>Comanda:</strong> {{ last_invoice.order_id }}</span>
-        <span><strong>Data:</strong> {{ last_invoice.date }}</span>
-        <span><strong>Client:</strong> {{ last_invoice.client_id }}</span>
-        <span><strong>Adreca entrega:</strong> {{ last_invoice.delivery_address }}</span>
+        <span><strong>Pedido:</strong> {{ last_invoice.order_id }}</span>
+        <span><strong>Fecha:</strong> {{ last_invoice.date }}</span>
+        <span><strong>Cliente:</strong> {{ last_invoice.client_id }}</span>
+        <span><strong>Dirección de entrega:</strong> {{ last_invoice.delivery_address }}</span>
         <span><strong>IBAN:</strong> {{ last_invoice.client_iban }}</span>
     </div>
     <table>
         <thead>
-            <tr><th>#</th><th>Producte</th><th>Marca</th><th>Venedor</th><th>Preu</th></tr>
+            <tr><th>#</th><th>Producto</th><th>Marca</th><th>Vendedor</th><th>Precio</th></tr>
         </thead>
         <tbody>
             {% for item in last_invoice['items'] %}
@@ -60,7 +60,7 @@
     </table>
     <p class="invoice-total"><strong>TOTAL: {{ '%.2f' | format(last_invoice.total) }} EUR</strong></p>
     <div class="invoice-footer">
-        <button onclick="window.print()">&#x1F5A8; Imprimir / Desar PDF</button>
+        <button onclick="window.print()">&#x1F5A8; Imprimir / Guardar PDF</button>
     </div>
 </div>
 {% endif %}
