@@ -17,13 +17,15 @@ set -u
 DIR_HOST="127.0.0.1"
 DIR_PORT="9000"
 DIR_URL="http://${DIR_HOST}:${DIR_PORT}"
-HOSTADDR="127.0.0.1"
+HOSTADDR="10.96.231.241"
 
 # Prefer local env python, then active env python, then system python3
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/external_agents_config.json"
 FEEDBACK_DELAY_SECONDS="${ECSDI_FEEDBACK_DELAY_SECONDS:-30}"
 DELIVERY_DELAY_SECONDS="${ECSDI_DELIVERY_DELAY_SECONDS:-0}"
+LOT_FULL_UNITS="${ECSDI_LOT_FULL_UNITS:-1}"
+URGENT_WINDOW_SECONDS="${ECSDI_URGENT_WINDOW_SECONDS:-30}"
 if [[ -x "${SCRIPT_DIR}/env/bin/python" ]]; then
     PYTHON="${SCRIPT_DIR}/env/bin/python"
 elif [[ -x "${SCRIPT_DIR}/.venv/bin/python" ]]; then
@@ -94,10 +96,10 @@ start_agent "Transportista CheapMove"  "$PYTHON" Transportista.py  --port 9072  
 start_agent "Transportista PremiumLog" "$PYTHON" Transportista.py  --port 9073  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --config "$CONFIG_FILE" --profile premiumlog
 start_agent "Tesorero"           "$PYTHON" Tesorero.py           --port 9060  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
 start_agent "Ventas"             "$PYTHON" Ventas.py             --port 9020  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR"
-start_agent "CentroLogistico0"   "$PYTHON" CentroLogistico.py   --port 9030  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --delivery-delay-seconds "$DELIVERY_DELAY_SECONDS"
-start_agent "CentroLogistico1"   "$PYTHON" CentroLogistico.py   --port 9031  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --delivery-delay-seconds "$DELIVERY_DELAY_SECONDS"
-start_agent "CentroLogistico2"   "$PYTHON" CentroLogistico.py   --port 9032  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --delivery-delay-seconds "$DELIVERY_DELAY_SECONDS"
-start_agent "CentroLogistico3"   "$PYTHON" CentroLogistico.py   --port 9033  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --delivery-delay-seconds "$DELIVERY_DELAY_SECONDS"
+start_agent "CentroLogistico0"   "$PYTHON" CentroLogistico.py   --port 9030  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --delivery-delay-seconds "$DELIVERY_DELAY_SECONDS" --lot-full-units "$LOT_FULL_UNITS" --urgent-window-seconds "$URGENT_WINDOW_SECONDS"
+start_agent "CentroLogistico1"   "$PYTHON" CentroLogistico.py   --port 9031  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --delivery-delay-seconds "$DELIVERY_DELAY_SECONDS" --lot-full-units "$LOT_FULL_UNITS" --urgent-window-seconds "$URGENT_WINDOW_SECONDS"
+start_agent "CentroLogistico2"   "$PYTHON" CentroLogistico.py   --port 9032  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --delivery-delay-seconds "$DELIVERY_DELAY_SECONDS" --lot-full-units "$LOT_FULL_UNITS" --urgent-window-seconds "$URGENT_WINDOW_SECONDS"
+start_agent "CentroLogistico3"   "$PYTHON" CentroLogistico.py   --port 9033  --dir "$DIR_URL" --open --hostaddr "$HOSTADDR" --delivery-delay-seconds "$DELIVERY_DELAY_SECONDS" --lot-full-units "$LOT_FULL_UNITS" --urgent-window-seconds "$URGENT_WINDOW_SECONDS"
 
 echo
 echo "Agents are running."

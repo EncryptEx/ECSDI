@@ -107,6 +107,7 @@ const TYPE_LABELS = {
   'RespuestaBancariaTransferencia':'confirmacion-transferencia',
   'PeticionGuardarCompraRealizada':'quiero-guardar-compra',
   'PeticionDevolucion':         'quiero-devolver',
+  'ResultadoDevolucion':        'resultado-devolucion',
   'EnvioDatosEnvio':            'datos-envio',
   'PeticionFeedbackCliente':    'pedir-feedback',
   'RespuestaFeedbackCliente':   'feedback-cliente',
@@ -123,6 +124,7 @@ const TYPE_LABELS = {
   'PeticionPresupuestoEnvioLote':'solicitar-presupuesto',
   'RespuestaSolicitudPresupuesto':'respuesta-presupuesto',
   'PeticionContraOfertaLote':   'contraoferta-transporte',
+  'RespuestaContraOferta':      'respuesta-contraoferta',
   'RespuestaContraOfertaLote':  'respuesta-contraoferta',
   'PeticionAceptarOfertaLote':  'aceptar-oferta',
   'TransferenciaRequest':       'transferencia',
@@ -149,22 +151,36 @@ const nodes = {};   // normalized_id → {label, x, y, c}
 let nextSlot = 0, colorIdx = 0;
 
 // Receiver type strings use different naming conventions than sender log_prefixes.
-// This map normalises known receiver-only variants to the canonical log_prefix prefix.
+// This map normalises aliases to the documented role name and preserves ports,
+// so each running instance remains a separate node.
 const AGENT_TYPE_NORM = {
-  'CENTRO-LOGISTICO': 'LOGISTICO',   // receiver='CENTRO_LOGISTICO' → same node as sender 'logistico-PORT'
-  'CLIENTE':          'CLIENT',      // receiver='CLIENTE' → same node as sender 'client-PORT'
-  'DIRECTORYSERVICE': 'DIRECTORIO',  // receiver='DirectoryService' → same node as sender 'directorio-PORT'
+  'BANCO': 'ENTIDAD-BANCARIA',
+  'CATALOGO': 'CATALOGADOR',
+  'CATALOGADOR': 'CATALOGADOR',
+  'CENTRO-LOGISTICO': 'CENTRO-LOGISTICO',
+  'CLIENT': 'CLIENTE',
+  'CLIENTE': 'CLIENTE',
+  'DIRECTORIO': 'DIRECTORIO',
+  'DIRECTORY': 'DIRECTORIO',
+  'DIRECTORYSERVICE': 'DIRECTORIO',
+  'EMPRESA-VENDEDORA': 'EMPRESA-VENDEDORA',
+  'ENTIDAD-BANCARIA': 'ENTIDAD-BANCARIA',
+  'LOGGER': 'LOGGER',
+  'LOGISTICO': 'CENTRO-LOGISTICO',
+  'TESORERO': 'TESORERO',
+  'TRANSPORTISTA': 'TRANSPORTISTA',
+  'VALORADOR': 'VALORADOR',
+  'VENTAS': 'VENTAS',
 };
 
 // Returns a canonical node key:
-//   'logistico-9030'    → 'LOGISTICO-9030'   (separate node per instance)
-//   'CENTRO_LOGISTICO-9030' → 'LOGISTICO-9030' (alias)
-//   'client-9001'       → 'CLIENT-9001'
-//   'CLIENTE-9001'      → 'CLIENT-9001'       (alias)
-//   'DirectoryService'  → 'DIRECTORIO'        (alias, no port = DS responded without port)
+//   'logistico-9030'        -> 'CENTRO-LOGISTICO-9030'
+//   'CENTRO_LOGISTICO-9030' -> 'CENTRO-LOGISTICO-9030'
+//   'client-9001'           -> 'CLIENTE-9001'
+//   'CLIENTE-9001'          -> 'CLIENTE-9001'
 function normAgent(n) {
   if (!n) return 'UNKNOWN';
-  const s = n.trim().toUpperCase().replace(/_/g, '-');
+  const s = n.trim().toUpperCase().replace(/[\s_]+/g, '-');
   // Separate trailing port number (digits only after last hyphen)
   const m = s.match(/^(.*?)-(\d+)$/);
   const type = AGENT_TYPE_NORM[m ? m[1] : s] || (m ? m[1] : s);
@@ -380,8 +396,8 @@ function renderDetail() {
     `<tr><td>Hora</td><td>${m.ts_fmt}</td></tr>` +
     `<tr><td>Protocol</td><td><strong>${primary}</strong></td></tr>` +
     `<tr><td>Tipus RDF</td><td>${m.type}</td></tr>` +
-    `<tr><td>De</td><td>${m.from}</td></tr>` +
-    `<tr><td>A</td><td>${m.to}</td></tr>` +
+    `<tr><td>De</td><td>${normAgent(m.from)}</td></tr>` +
+    `<tr><td>A</td><td>${normAgent(m.to)}</td></tr>` +
     `<tr><td>Fase</td><td>${m.phase || '—'}</td></tr>` +
     `<tr><td>Performativa</td><td>${m.performative}</td></tr>` +
     `<tr><td>Conversa</td><td>${m.conversation_id || '—'}</td></tr>` +

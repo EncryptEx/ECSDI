@@ -17,12 +17,14 @@ Ventas
 
 """
 import argparse
+import re
 from FlaskServer import shutdown_server
 from flask import Flask, request
 from requests import ConnectionError
 from Util import gethostname
 import logging
 import socket
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 __author__ = 'bejar'
@@ -41,13 +43,12 @@ from AgentCommunication import (
     build_product_info_request,
     build_purchase_result,
     build_purchases_response,
+    build_return_resolution,
     build_status_response,
     build_transfer_request,
     completed_purchase_from_request,
     delivery_address_from_purchase,
     directory_addresses_from_response,
-    first_float,
-    first_literal,
     get_message_properties,
     has_type,
     logistics_location_from_response,
@@ -60,11 +61,12 @@ from AgentCommunication import (
     response_ok,
     response_text,
     requested_client_id,
+    return_request_from_content,
     send_graph_message,
     serialize_graph,
     set_tracer_url,
 )
-from GeoUtils import distance_from_address_km
+from GeoUtils import distance_from_address_km, location_for_logistics_port
 from RuntimeInfo import purchase_row, render_runtime_info, rows_from_sequence, table_section
 
 app = Flask(__name__)
@@ -75,6 +77,8 @@ log_prefix = 'ventas'
 compras = {}
 compras_finalizadas = {}
 devoluciones = []
+RETURN_CENTER_ADDRESS = 'Centro de devoluciones ECSDI, UPC Campus Nord, Barcelona'
+EXPECTATIONS_RETURN_DAYS = 15
 
 
 def log(msg):
@@ -90,8 +94,61 @@ def purchase_total(purchase):
     return total
 
 
+def parse_datetime(value):
+    raw = str(value or '').strip()
+    if not raw:
+        return None
+    if raw.endswith('Z'):
+        raw = raw[:-1] + '+00:00'
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone().replace(tzinfo=None)
+    return parsed
+
+
 def product_name(item):
     return str(item.get('name') or item.get('id') or '').strip()
+
+
+def product_matches(item, key):
+    needle = str(key or '').strip().lower()
+    if not needle:
+        return False
+    candidates = {
+        str(item.get('id') or '').strip().lower(),
+        str(item.get('name') or '').strip().lower(),
+    }
+    return needle in candidates
+
+
+def port_from_address(address):
+    match = re.search(r':(\d+)(?:/|$)', str(address or ''))
+    return int(match.group(1)) if match else None
+
+
+def logistics_center_location_hint(address):
+    port = port_from_address(address)
+    return location_for_logistics_port(port) if port is not None else {}
+
+
+def logistics_centers_by_distance(addresses, delivery_address):
+    centers = []
+    for address in addresses:
+        location = logistics_center_location_hint(address)
+        distance = distance_from_address_km(delivery_address, location)
+        centers.append({
+            'address': address,
+            'location': location,
+            'distance_km': distance,
+        })
+    centers.sort(key=lambda item: (
+        item['distance_km'] if item['distance_km'] is not None else float('inf'),
+        item['address']
+    ))
+    return centers
 
 
 def is_external_product(item):
@@ -117,7 +174,8 @@ def item_identity(item):
 
 def merge_purchase(existing, incoming):
     merged = dict(existing)
-    for key in ('id', 'client_id', 'client_iban', 'delivery_address', 'delivery_date', 'transportista', 'tracking_id'):
+    for key in ('id', 'client_id', 'client_iban', 'delivery_address', 'delivery_date',
+                'delivery_deadline', 'transportista', 'tracking_id'):
         if incoming.get(key):
             merged[key] = incoming[key]
 
@@ -328,6 +386,78 @@ def purchases_for_client(client_id):
     ]
 
 
+def return_transport_info(purchase_id):
+    addresses, error = query_directory_service('TRANSPORTISTA', all_agents=True)
+    transportista = 'Mensajeria ECSDI'
+    if not error and addresses:
+        port = port_from_address(addresses[0])
+        transportista = f'Transportista-{port}' if port else addresses[0]
+    return {
+        'transportista': transportista,
+        'tracking_id': f'DEV-{str(purchase_id or uuid4())[:8]}',
+        'return_address': RETURN_CENTER_ADDRESS,
+    }
+
+
+def selected_return_items(purchase, product_key):
+    items = [dict(item) for item in purchase.get('items') or []]
+    if not product_key:
+        return items
+    return [item for item in items if product_matches(item, product_key)]
+
+
+def already_returned(purchase_id, product_key):
+    normalized_product = str(product_key or '*').strip().lower() or '*'
+    for item in devoluciones:
+        if str(item.get('purchase_id', '')) != str(purchase_id):
+            continue
+        if item.get('accepted') is not True:
+            continue
+        returned_product = str(item.get('product', '*')).strip().lower() or '*'
+        if returned_product == '*' or normalized_product == '*' or returned_product == normalized_product:
+            return True
+    return False
+
+
+def evaluate_return_request(return_data, sender):
+    purchase_id = return_data.get('purchase_id') or ''
+    purchase = compras_finalizadas.get(purchase_id)
+    if not purchase:
+        return False, 'COMPRA NO ENCONTRADA', None, [], 0.0
+
+    requested_client = return_data.get('client_id') or sender
+    if purchase.get('client_id') and requested_client and str(purchase.get('client_id')) != str(requested_client):
+        return False, 'COMPRA NO PERTENECE AL CLIENTE', purchase, [], 0.0
+
+    reason = return_data.get('reason') or ''
+    if reason not in {'defectuoso', 'equivocado', 'expectativas'}:
+        return False, 'MOTIVO DE DEVOLUCION INVALIDO', purchase, [], 0.0
+
+    product_key = return_data.get('product') or ''
+    items = selected_return_items(purchase, product_key)
+    if not items:
+        return False, 'PRODUCTO NO ENCONTRADO EN LA COMPRA', purchase, [], 0.0
+
+    if already_returned(purchase_id, product_key):
+        return False, 'DEVOLUCION YA REGISTRADA PARA ESTA COMPRA/PRODUCTO', purchase, [], 0.0
+
+    if reason == 'expectativas':
+        delivered_at = parse_datetime(purchase.get('delivery_date'))
+        if not delivered_at:
+            return False, 'NO CONSTA FECHA DE RECEPCION PARA DEVOLUCION POR EXPECTATIVAS', purchase, [], 0.0
+        now = datetime.now()
+        if now < delivered_at:
+            return False, 'EL PEDIDO TODAVIA NO CONSTA COMO RECIBIDO', purchase, [], 0.0
+        if now > delivered_at + timedelta(days=EXPECTATIONS_RETURN_DAYS):
+            return False, 'PLAZO DE 15 DIAS SUPERADO PARA DEVOLUCION POR EXPECTATIVAS', purchase, [], 0.0
+
+    refund = purchase_total({'items': items})
+    if refund <= 0:
+        return False, 'IMPORTE DE DEVOLUCION INVALIDO', purchase, items, 0.0
+
+    return True, 'DEVOLUCION ACEPTADA', purchase, items, refund
+
+
 @app.route("/message")
 def message():
     """
@@ -404,36 +534,51 @@ def message():
         return serialize_graph(response)
 
     if has_type(graph, content, ECSDI.PeticionDevolucion) or has_type(graph, content, ECSDI.PeticionDevolverDinero) or has_type(graph, content, ECSDI['PeticionDevolverDineroACliente']):
-        purchase_id = first_literal(graph, content, ECSDI.idCompra, '')
-        purchase = compras_finalizadas.get(purchase_id)
-        if not purchase:
-            response = build_status_response(
-                log_prefix,
-                sender,
-                ok=False,
-                text='COMPRA NO ENCONTRADA',
-                conversation_id=conversation_id
-            )
-            return serialize_graph(response)
+        return_data = return_request_from_content(graph, content)
+        ok, text, purchase, return_items, amount = evaluate_return_request(return_data, sender)
+        return_data['client_id'] = return_data.get('client_id') or (purchase or {}).get('client_id') or sender
+        transport = return_transport_info(return_data.get('purchase_id')) if ok else {}
 
-        amount = first_float(graph, content, ECSDI.cantidadTransferencia, purchase_total(purchase))
-        devoluciones.append({'purchase_id': purchase_id, 'amount': amount})
-        send_to_tesorero(build_transfer_request(
-            'dev',
-            amount,
-            sender=log_prefix,
-            receiver='TESORERO',
-            participant=purchase.get('client_id', ''),
-            purchase=purchase,
-            iban=purchase.get('client_iban', ''),
-            message_name='quiero-devolver'
-        ))
-        response = build_status_response(
+        devolucion = {
+            'purchase_id': return_data.get('purchase_id', ''),
+            'client_id': return_data.get('client_id', ''),
+            'product': return_data.get('product') or '*',
+            'reason': return_data.get('reason', ''),
+            'comment': return_data.get('comment', ''),
+            'amount': amount,
+            'accepted': ok,
+            'resolution': text,
+            'transportista': transport.get('transportista', ''),
+            'tracking_id': transport.get('tracking_id', ''),
+            'return_address': transport.get('return_address', ''),
+        }
+        devoluciones.append(devolucion)
+
+        if ok:
+            refund_purchase = dict(purchase)
+            refund_purchase['items'] = return_items
+            send_to_tesorero(build_transfer_request(
+                'dev',
+                amount,
+                sender=log_prefix,
+                receiver='TESORERO',
+                participant=purchase.get('client_id', ''),
+                purchase=refund_purchase,
+                iban=purchase.get('client_iban', ''),
+                message_name='quiero-devolver'
+            ))
+
+        response = build_return_resolution(
+            ok,
+            return_data,
             log_prefix,
             sender,
-            ok=True,
-            text='DEVOLUCION PROCESADA',
-            conversation_id=conversation_id
+            conversation_id=conversation_id,
+            text=text,
+            amount=amount,
+            transportista=transport.get('transportista', ''),
+            tracking_id=transport.get('tracking_id', ''),
+            return_address=transport.get('return_address', '')
         )
         return serialize_graph(response)
 
@@ -476,6 +621,7 @@ def message():
 
     incoming_purchase = purchase_from_content(graph, content)
     delivery_address = incoming_purchase.get('delivery_address') or delivery_address_from_purchase(graph, content)
+    delivery_deadline = incoming_purchase.get('delivery_deadline') or ''
     client_id = incoming_purchase.get('client_id') or sender
     client_iban = incoming_purchase.get('client_iban') or ''
     purchase_id = incoming_purchase.get('id') or str(uuid4())
@@ -501,6 +647,9 @@ def message():
         return serialize_graph(response)
 
     product_info = fetch_product_info(products_to_buy)
+    if delivery_deadline:
+        for product in product_info:
+            product['delivery_deadline'] = delivery_deadline
     product_by_name = {product_name(product).lower(): product for product in product_info}
     warehouse_products = {
         product_name(product): int(product.get('quantity', products_to_buy.get(product_name(product), 1)))
@@ -517,6 +666,8 @@ def message():
     log(f'Processing PeticionCompra: {products_to_buy}')
     if delivery_address:
         log(f'Delivery address: {delivery_address}')
+    if delivery_deadline:
+        log(f'Max delivery deadline: {delivery_deadline}')
 
     register_client_in_tesorero(client_id, client_iban, delivery_address)
 
@@ -533,63 +684,59 @@ def message():
         return serialize_graph(response)
 
     remaining_warehouse = dict(warehouse_products)
-    center_candidates = []
-    log(f'Logistics centers available: {centros_logisticos}')
-    for centro_addr in centros_logisticos:
+    assignments_by_center = {}
+    center_by_address = {
+        center['address']: center
+        for center in logistics_centers_by_distance(centros_logisticos, delivery_address)
+    }
+    sorted_centers = list(center_by_address.values())
+    log(f'Logistics centers ordered by proximity: {[center["address"] for center in sorted_centers]}')
+
+    for product, quantity in warehouse_products.items():
+        for center in sorted_centers:
+            centro_addr = center['address']
+            try:
+                exists_request = build_line_request(
+                    ECSDI.PeticionExisteLineaComanda,
+                    {product: quantity},
+                    sender=log_prefix,
+                    receiver='CENTRO_LOGISTICO',
+                    performative=ACL['query-if'],
+                    message_name='existe-producto',
+                    delivery_address=delivery_address,
+                    delivery_deadline=delivery_deadline
+                )
+                resp = send_graph_message(centro_addr, exists_request)
+            except ConnectionError:
+                log(f'Center {centro_addr} unreachable for product={product}')
+                continue
+            except Exception as exc:
+                log(f'Center {centro_addr} returned invalid existence response for product={product}: {exc}')
+                continue
+
+            if not response_ok(resp):
+                log(f'Center {centro_addr} refused existence request: {response_text(resp, "ERROR")}')
+                continue
+
+            availability = availability_from_response(resp)
+            response_location = logistics_location_from_response(resp)
+            if response_location.get('address') or response_location.get('lat') is not None:
+                center['location'] = response_location
+                center['distance_km'] = distance_from_address_km(delivery_address, response_location)
+            distance = center['distance_km']
+            distance_label = f'{distance:.2f} km' if distance is not None else 'distancia desconocida'
+            available = bool(availability.get(product))
+            log(f'Center {centro_addr} availability product={product}: {available}; distance={distance_label}')
+            if available:
+                assignments_by_center.setdefault(centro_addr, {})[product] = quantity
+                break
+
+        if product not in {p for assignment in assignments_by_center.values() for p in assignment.keys()}:
+            log(f'No center with stock found for product={product}')
+
+    for centro_addr, to_buy_here in assignments_by_center.items():
         try:
-            exists_request = build_line_request(
-                ECSDI.PeticionExisteLineaComanda,
-                remaining_warehouse,
-                sender=log_prefix,
-                receiver='CENTRO_LOGISTICO',
-                performative=ACL['query-if'],
-                message_name='existe-producto'
-            )
-            resp = send_graph_message(centro_addr, exists_request)
-        except ConnectionError:
-            log(f'Center {centro_addr} unreachable')
-            continue
-        except Exception as exc:
-            log(f'Center {centro_addr} returned invalid existence response: {exc}')
-            continue
-
-        if not response_ok(resp):
-            log(f'Center {centro_addr} refused existence request: {response_text(resp, "ERROR")}')
-            continue
-
-        availability = availability_from_response(resp)
-        location = logistics_location_from_response(resp)
-        distance = distance_from_address_km(delivery_address, location)
-        center_candidates.append({
-            'address': centro_addr,
-            'availability': availability,
-            'location': location,
-            'distance_km': distance,
-        })
-        distance_label = f'{distance:.2f} km' if distance is not None else 'distancia desconocida'
-        log(
-            f'Center {centro_addr} availability: {availability}; '
-            f'location={location.get("address", "")}; distance={distance_label}'
-        )
-
-    center_candidates.sort(key=lambda item: (
-        item['distance_km'] if item['distance_km'] is not None else float('inf'),
-        item['address']
-    ))
-
-    for center in center_candidates:
-        if not remaining_warehouse:
-            break
-
-        centro_addr = center['address']
-        availability = center['availability']
-
-        to_buy_here = {p: remaining_warehouse[p] for p, ok in availability.items() if ok and p in remaining_warehouse}
-        if not to_buy_here:
-            log(f'Center {centro_addr} cannot handle any remaining product, skipping')
-            continue
-
-        try:
+            center = center_by_address.get(centro_addr, {'distance_km': None})
             distance = center['distance_km']
             distance_label = f'{distance:.2f} km' if distance is not None else 'distancia desconocida'
             log(f'Assigning lot in {centro_addr} ({distance_label}): {to_buy_here}')
@@ -597,6 +744,8 @@ def message():
             for product, quantity in to_buy_here.items():
                 item = dict(product_by_name.get(product.lower(), {'name': product, 'price': 0.0}))
                 item['quantity'] = quantity
+                if delivery_deadline:
+                    item['delivery_deadline'] = delivery_deadline
                 assignment_payload[product] = item
             buy_request = build_lot_assignment_request(
                 assignment_payload,
@@ -604,7 +753,8 @@ def message():
                 receiver='CENTRO_LOGISTICO',
                 delivery_address=delivery_address,
                 purchase_id=purchase_id,
-                client_id=client_id
+                client_id=client_id,
+                delivery_deadline=delivery_deadline
             )
             buy_resp = send_graph_message(centro_addr, buy_request)
             if response_ok(buy_resp):
@@ -623,10 +773,11 @@ def message():
 
     if remaining_warehouse:
         log(f'Purchase incomplete, remaining warehouse-managed products: {remaining_warehouse}')
-        response = build_purchase_result(
-            False,
-            sender=log_prefix,
-            receiver=sender,
+        response = build_status_response(
+            log_prefix,
+            sender,
+            ok=False,
+            text=f'PRODUCTOS SIN STOCK: {", ".join(remaining_warehouse.keys())}',
             conversation_id=conversation_id
         )
     else:
@@ -635,6 +786,7 @@ def message():
             'client_id': client_id,
             'client_iban': client_iban,
             'delivery_address': delivery_address,
+            'delivery_deadline': delivery_deadline,
             'items': assigned_items + fully_external_items
         }
         compras[purchase_id] = purchase
@@ -645,6 +797,7 @@ def message():
                 'client_id': client_id,
                 'client_iban': client_iban,
                 'delivery_address': delivery_address,
+                'delivery_deadline': delivery_deadline,
                 'items': fully_external_items
             }
             if not notify_external_seller(external_purchase):
@@ -679,13 +832,12 @@ def message():
         total = purchase_total(purchase)
         notify_client_invoice(purchase, total, conversation_id=conversation_id)
         log(f'All products purchased successfully; total={total:.2f}')
-        response = build_purchase_result(
-            True,
-            sender=log_prefix,
-            receiver=sender,
+        response = build_status_response(
+            log_prefix,
+            sender,
+            ok=True,
+            text='COMPRA PROCESADA; FACTURA ENVIADA AL CLIENTE',
             conversation_id=conversation_id,
-            total=total,
-            purchase=purchase
         )
     return serialize_graph(response)
 

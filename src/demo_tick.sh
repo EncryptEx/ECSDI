@@ -4,7 +4,11 @@ set -u
 
 HOST="${1:-127.0.0.1}"
 WAIT_FOR_FEEDBACK_SECONDS="${WAIT_FOR_FEEDBACK_SECONDS:-0}"
-
+ENVIOS_QUERY=""
+if [[ "${FORCE_ENVIOS:-0}" == "1" ]]; then
+    ENVIOS_QUERY="?force=1"
+fi
+REGISTER_EXTERNAL_PRODUCTS="${REGISTER_EXTERNAL_PRODUCTS:-1}"
 echo "Accelerating ECSDI demo timers on ${HOST}"
 
 if [[ "${REGISTER_EXTERNAL_PRODUCTS:-0}" == "1" ]]; then
@@ -19,7 +23,7 @@ fi
 for port in 9030 9031 9032 9033; do
     echo
     echo "CentroLogistico ${port}: Enviar lotes timer up"
-    curl -s "http://${HOST}:${port}/tick/envios"
+    curl -s "http://${HOST}:${port}/tick/envios${ENVIOS_QUERY}"
     echo
 done
 

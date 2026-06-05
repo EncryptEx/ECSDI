@@ -70,6 +70,8 @@ probcounter = 0
 log_prefix = 'logistico'
 diraddress = ''
 DELIVERY_DELAY_SECONDS = int(os.environ.get('ECSDI_DELIVERY_DELAY_SECONDS', str(2 * 24 * 60 * 60)))
+LOT_FULL_UNITS = int(os.environ.get('ECSDI_LOT_FULL_UNITS', '1'))
+URGENT_WINDOW_SECONDS = int(os.environ.get('ECSDI_URGENT_WINDOW_SECONDS', '3600'))
 CENTER_LOCATION = location_for_logistics_port(9030)
 WAREHOUSE_MANAGED_PRODUCTS = [
     'Auriculares Inalambricos SoundGo',
@@ -173,6 +175,54 @@ def directory_addresses(agent_type, all_agents=False):
 def lot_weight(purchase):
     units = sum(int(item.get('quantity', 1)) for item in purchase.get('items') or []) or 1
     return round(1.0 + units * 0.5, 2)
+
+
+def parse_datetime(value):
+    raw = str(value or '').strip()
+    if not raw:
+        return None
+    if raw.endswith('Z'):
+        raw = raw[:-1] + '+00:00'
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone().replace(tzinfo=None)
+    return parsed
+
+
+def purchase_deadline(purchase):
+    direct = parse_datetime(purchase.get('delivery_deadline'))
+    if direct:
+        return direct
+    deadlines = []
+    for item in purchase.get('items') or []:
+        parsed = parse_datetime(item.get('delivery_deadline'))
+        if parsed:
+            deadlines.append(parsed)
+    return min(deadlines) if deadlines else None
+
+
+def lot_units(purchase):
+    return sum(int(item.get('quantity', 1)) for item in purchase.get('items') or [])
+
+
+def lot_ready_status(lot, now=None, force=False):
+    if force:
+        return True, 'forzado'
+    purchase = lot.get('purchase') or {}
+    units = lot_units(purchase)
+    if units >= LOT_FULL_UNITS:
+        return True, f'lote lleno ({units}/{LOT_FULL_UNITS} uds)'
+    deadline = purchase_deadline(purchase)
+    if deadline:
+        now = now or datetime.now()
+        remaining = (deadline - now).total_seconds()
+        if remaining <= URGENT_WINDOW_SECONDS:
+            return True, f'prioridad por plazo ({int(remaining)}s restantes)'
+        return False, f'esperando llenar lote ({units}/{LOT_FULL_UNITS} uds, plazo en {int(remaining)}s)'
+    return False, f'esperando llenar lote ({units}/{LOT_FULL_UNITS} uds, sin plazo maximo)'
 
 
 def counter_offer_target(initial_price, current_price, round_index):
@@ -302,14 +352,30 @@ def negotiate_transport(purchase):
 
 
 def build_shipping_notice_payload(purchase, transport):
-    delivery_date = (datetime.now() + timedelta(seconds=DELIVERY_DELAY_SECONDS)).replace(microsecond=0).isoformat()
+    now = datetime.now()
+    planned_delivery = now + timedelta(seconds=DELIVERY_DELAY_SECONDS)
+    deadline = purchase_deadline(purchase)
+    priority_applied = False
+    if deadline and planned_delivery > deadline:
+        planned_delivery = deadline if deadline > now else now
+        priority_applied = True
+    delivery_date = planned_delivery.replace(microsecond=0).isoformat()
     tracking_id = f'{log_prefix}-{purchase.get("id", "compra")}'
+    notice_purchase = dict(purchase)
+    notice_purchase['delivery_date'] = delivery_date
+    notice_purchase['transportista'] = transport.get('transportista') or 'Transportista asignado'
+    notice_purchase['tracking_id'] = tracking_id
+    message = f'Datos de envio generados por el temporizador de lotes. Precio transporte: {transport.get("price", 0.0):.2f}'
+    if deadline:
+        message += f'. Plazo maximo solicitado: {deadline.replace(microsecond=0).isoformat()}'
+    if priority_applied:
+        message += '. Envio priorizado para respetar el plazo maximo.'
     return {
-        'purchase': purchase,
-        'transportista': transport.get('transportista') or 'Transportista asignado',
+        'purchase': notice_purchase,
+        'transportista': notice_purchase['transportista'],
         'delivery_date': delivery_date,
         'tracking_id': tracking_id,
-        'message': f'Datos de envio generados por el temporizador de lotes. Precio transporte: {transport.get("price", 0.0):.2f}',
+        'message': message,
     }
 
 
@@ -428,6 +494,7 @@ def message():
             'financials_sent': False,
             'transport': None,
             'transport_options': [],
+            'ready_reason': '',
         })
         response = build_purchase_result(
             True,
@@ -457,10 +524,19 @@ def tick_envios():
     processed = 0
     notified = 0
     negotiated = 0
+    skipped = 0
+    force = request.args.get('force', '').strip().lower() in {'1', 'true', 'yes', 'si'}
+    now = datetime.now()
     for lot in LOTES_PENDIENTES:
         if lot.get('shipping_sent'):
             continue
         purchase = lot.get('purchase') or {'items': []}
+        ready, reason = lot_ready_status(lot, now=now, force=force)
+        lot['ready_reason'] = reason
+        if not ready:
+            skipped += 1
+            log(f'Lot compra={purchase.get("id", "")} not sent: {reason}')
+            continue
         transport = lot.get('transport')
         if not transport:
             transport, options = negotiate_transport(purchase)
@@ -477,7 +553,7 @@ def tick_envios():
         lot['shipping_sent'] = True
         processed += 1
         notified += 1
-    text = f'ENVIOS PROCESADOS={processed} NEGOCIACIONES={negotiated} NOTIFICACIONES={notified}'
+    text = f'ENVIOS PROCESADOS={processed} NEGOCIACIONES={negotiated} NOTIFICACIONES={notified} OMITIDOS={skipped}'
     log(text)
     return text
 
@@ -494,7 +570,9 @@ def info():
             'purchase_id': purchase.get('id', ''),
             'client_id': purchase.get('client_id', ''),
             'delivery_address': purchase.get('delivery_address', ''),
+            'delivery_deadline': purchase.get('delivery_deadline', ''),
             'products': summarize_items(purchase.get('items') or []),
+            'ready_reason': lot.get('ready_reason', ''),
             'financials_sent': lot.get('financials_sent', False),
             'shipping_sent': lot.get('shipping_sent', False),
             'transportista': transport.get('transportista', ''),
@@ -516,6 +594,8 @@ def info():
     stats = [
         {'label': 'Stock entries', 'value': len(STOCK)},
         {'label': 'Lotes pendientes', 'value': len(LOTES_PENDIENTES)},
+        {'label': 'Unidades para lote lleno', 'value': LOT_FULL_UNITS},
+        {'label': 'Ventana urgencia segundos', 'value': URGENT_WINDOW_SECONDS},
         {'label': 'Direccion', 'value': CENTER_LOCATION.get('address', '')},
     ]
     sections = [
@@ -548,6 +628,10 @@ if __name__ == '__main__':
     parser.add_argument('--hostaddr', default=None, help="Direccion del agente anunciada al exterior (sobreescribe la deteccion automatica)")
     parser.add_argument('--delivery-delay-seconds', type=int, default=None,
                         help="Segundos hasta la fecha prevista de entrega (demo: 0)")
+    parser.add_argument('--lot-full-units', type=int, default=None,
+                        help="Unidades minimas para considerar lleno un lote")
+    parser.add_argument('--urgent-window-seconds', type=int, default=None,
+                        help="Segundos antes del plazo maximo que fuerzan el envio del lote")
     parser.add_argument('--center-address', default=None, help="Direccion fisica del centro logistico")
     parser.add_argument('--center-lat', type=float, default=None, help="Latitud del centro logistico")
     parser.add_argument('--center-lon', type=float, default=None, help="Longitud del centro logistico")
@@ -573,6 +657,10 @@ if __name__ == '__main__':
     log_prefix = f'logistico-{port}'
     if args.delivery_delay_seconds is not None:
         DELIVERY_DELAY_SECONDS = max(0, int(args.delivery_delay_seconds))
+    if args.lot_full_units is not None:
+        LOT_FULL_UNITS = max(1, int(args.lot_full_units))
+    if args.urgent_window_seconds is not None:
+        URGENT_WINDOW_SECONDS = max(0, int(args.urgent_window_seconds))
     CENTER_LOCATION = location_for_logistics_port(port)
     if args.center_address:
         CENTER_LOCATION['address'] = args.center_address
