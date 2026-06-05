@@ -24,6 +24,7 @@ from requests import ConnectionError
 from Util import gethostname
 import logging
 import socket
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 __author__ = 'bejar'
@@ -42,13 +43,12 @@ from AgentCommunication import (
     build_product_info_request,
     build_purchase_result,
     build_purchases_response,
+    build_return_resolution,
     build_status_response,
     build_transfer_request,
     completed_purchase_from_request,
     delivery_address_from_purchase,
     directory_addresses_from_response,
-    first_float,
-    first_literal,
     get_message_properties,
     has_type,
     logistics_location_from_response,
@@ -61,6 +61,7 @@ from AgentCommunication import (
     response_ok,
     response_text,
     requested_client_id,
+    return_request_from_content,
     send_graph_message,
     serialize_graph,
     set_tracer_url,
@@ -76,6 +77,8 @@ log_prefix = 'ventas'
 compras = {}
 compras_finalizadas = {}
 devoluciones = []
+RETURN_CENTER_ADDRESS = 'Centro de devoluciones ECSDI, UPC Campus Nord, Barcelona'
+EXPECTATIONS_RETURN_DAYS = 15
 
 
 def log(msg):
@@ -91,8 +94,34 @@ def purchase_total(purchase):
     return total
 
 
+def parse_datetime(value):
+    raw = str(value or '').strip()
+    if not raw:
+        return None
+    if raw.endswith('Z'):
+        raw = raw[:-1] + '+00:00'
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone().replace(tzinfo=None)
+    return parsed
+
+
 def product_name(item):
     return str(item.get('name') or item.get('id') or '').strip()
+
+
+def product_matches(item, key):
+    needle = str(key or '').strip().lower()
+    if not needle:
+        return False
+    candidates = {
+        str(item.get('id') or '').strip().lower(),
+        str(item.get('name') or '').strip().lower(),
+    }
+    return needle in candidates
 
 
 def port_from_address(address):
@@ -357,6 +386,78 @@ def purchases_for_client(client_id):
     ]
 
 
+def return_transport_info(purchase_id):
+    addresses, error = query_directory_service('TRANSPORTISTA', all_agents=True)
+    transportista = 'Mensajeria ECSDI'
+    if not error and addresses:
+        port = port_from_address(addresses[0])
+        transportista = f'Transportista-{port}' if port else addresses[0]
+    return {
+        'transportista': transportista,
+        'tracking_id': f'DEV-{str(purchase_id or uuid4())[:8]}',
+        'return_address': RETURN_CENTER_ADDRESS,
+    }
+
+
+def selected_return_items(purchase, product_key):
+    items = [dict(item) for item in purchase.get('items') or []]
+    if not product_key:
+        return items
+    return [item for item in items if product_matches(item, product_key)]
+
+
+def already_returned(purchase_id, product_key):
+    normalized_product = str(product_key or '*').strip().lower() or '*'
+    for item in devoluciones:
+        if str(item.get('purchase_id', '')) != str(purchase_id):
+            continue
+        if item.get('accepted') is not True:
+            continue
+        returned_product = str(item.get('product', '*')).strip().lower() or '*'
+        if returned_product == '*' or normalized_product == '*' or returned_product == normalized_product:
+            return True
+    return False
+
+
+def evaluate_return_request(return_data, sender):
+    purchase_id = return_data.get('purchase_id') or ''
+    purchase = compras_finalizadas.get(purchase_id)
+    if not purchase:
+        return False, 'COMPRA NO ENCONTRADA', None, [], 0.0
+
+    requested_client = return_data.get('client_id') or sender
+    if purchase.get('client_id') and requested_client and str(purchase.get('client_id')) != str(requested_client):
+        return False, 'COMPRA NO PERTENECE AL CLIENTE', purchase, [], 0.0
+
+    reason = return_data.get('reason') or ''
+    if reason not in {'defectuoso', 'equivocado', 'expectativas'}:
+        return False, 'MOTIVO DE DEVOLUCION INVALIDO', purchase, [], 0.0
+
+    product_key = return_data.get('product') or ''
+    items = selected_return_items(purchase, product_key)
+    if not items:
+        return False, 'PRODUCTO NO ENCONTRADO EN LA COMPRA', purchase, [], 0.0
+
+    if already_returned(purchase_id, product_key):
+        return False, 'DEVOLUCION YA REGISTRADA PARA ESTA COMPRA/PRODUCTO', purchase, [], 0.0
+
+    if reason == 'expectativas':
+        delivered_at = parse_datetime(purchase.get('delivery_date'))
+        if not delivered_at:
+            return False, 'NO CONSTA FECHA DE RECEPCION PARA DEVOLUCION POR EXPECTATIVAS', purchase, [], 0.0
+        now = datetime.now()
+        if now < delivered_at:
+            return False, 'EL PEDIDO TODAVIA NO CONSTA COMO RECIBIDO', purchase, [], 0.0
+        if now > delivered_at + timedelta(days=EXPECTATIONS_RETURN_DAYS):
+            return False, 'PLAZO DE 15 DIAS SUPERADO PARA DEVOLUCION POR EXPECTATIVAS', purchase, [], 0.0
+
+    refund = purchase_total({'items': items})
+    if refund <= 0:
+        return False, 'IMPORTE DE DEVOLUCION INVALIDO', purchase, items, 0.0
+
+    return True, 'DEVOLUCION ACEPTADA', purchase, items, refund
+
+
 @app.route("/message")
 def message():
     """
@@ -433,36 +534,51 @@ def message():
         return serialize_graph(response)
 
     if has_type(graph, content, ECSDI.PeticionDevolucion) or has_type(graph, content, ECSDI.PeticionDevolverDinero) or has_type(graph, content, ECSDI['PeticionDevolverDineroACliente']):
-        purchase_id = first_literal(graph, content, ECSDI.idCompra, '')
-        purchase = compras_finalizadas.get(purchase_id)
-        if not purchase:
-            response = build_status_response(
-                log_prefix,
-                sender,
-                ok=False,
-                text='COMPRA NO ENCONTRADA',
-                conversation_id=conversation_id
-            )
-            return serialize_graph(response)
+        return_data = return_request_from_content(graph, content)
+        ok, text, purchase, return_items, amount = evaluate_return_request(return_data, sender)
+        return_data['client_id'] = return_data.get('client_id') or (purchase or {}).get('client_id') or sender
+        transport = return_transport_info(return_data.get('purchase_id')) if ok else {}
 
-        amount = first_float(graph, content, ECSDI.cantidadTransferencia, purchase_total(purchase))
-        devoluciones.append({'purchase_id': purchase_id, 'amount': amount})
-        send_to_tesorero(build_transfer_request(
-            'dev',
-            amount,
-            sender=log_prefix,
-            receiver='TESORERO',
-            participant=purchase.get('client_id', ''),
-            purchase=purchase,
-            iban=purchase.get('client_iban', ''),
-            message_name='quiero-devolver'
-        ))
-        response = build_status_response(
+        devolucion = {
+            'purchase_id': return_data.get('purchase_id', ''),
+            'client_id': return_data.get('client_id', ''),
+            'product': return_data.get('product') or '*',
+            'reason': return_data.get('reason', ''),
+            'comment': return_data.get('comment', ''),
+            'amount': amount,
+            'accepted': ok,
+            'resolution': text,
+            'transportista': transport.get('transportista', ''),
+            'tracking_id': transport.get('tracking_id', ''),
+            'return_address': transport.get('return_address', ''),
+        }
+        devoluciones.append(devolucion)
+
+        if ok:
+            refund_purchase = dict(purchase)
+            refund_purchase['items'] = return_items
+            send_to_tesorero(build_transfer_request(
+                'dev',
+                amount,
+                sender=log_prefix,
+                receiver='TESORERO',
+                participant=purchase.get('client_id', ''),
+                purchase=refund_purchase,
+                iban=purchase.get('client_iban', ''),
+                message_name='quiero-devolver'
+            ))
+
+        response = build_return_resolution(
+            ok,
+            return_data,
             log_prefix,
             sender,
-            ok=True,
-            text='DEVOLUCION PROCESADA',
-            conversation_id=conversation_id
+            conversation_id=conversation_id,
+            text=text,
+            amount=amount,
+            transportista=transport.get('transportista', ''),
+            tracking_id=transport.get('tracking_id', ''),
+            return_address=transport.get('return_address', '')
         )
         return serialize_graph(response)
 
@@ -657,10 +773,11 @@ def message():
 
     if remaining_warehouse:
         log(f'Purchase incomplete, remaining warehouse-managed products: {remaining_warehouse}')
-        response = build_purchase_result(
-            False,
-            sender=log_prefix,
-            receiver=sender,
+        response = build_status_response(
+            log_prefix,
+            sender,
+            ok=False,
+            text=f'PRODUCTOS SIN STOCK: {", ".join(remaining_warehouse.keys())}',
             conversation_id=conversation_id
         )
     else:
@@ -715,13 +832,12 @@ def message():
         total = purchase_total(purchase)
         notify_client_invoice(purchase, total, conversation_id=conversation_id)
         log(f'All products purchased successfully; total={total:.2f}')
-        response = build_purchase_result(
-            True,
-            sender=log_prefix,
-            receiver=sender,
+        response = build_status_response(
+            log_prefix,
+            sender,
+            ok=True,
+            text='COMPRA PROCESADA; FACTURA ENVIADA AL CLIENTE',
             conversation_id=conversation_id,
-            total=total,
-            purchase=purchase
         )
     return serialize_graph(response)
 

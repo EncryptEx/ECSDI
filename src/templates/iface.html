@@ -34,6 +34,50 @@
 <div class="msg">{{ iface_message }}</div>
 {% endif %}
 
+<div class="box">
+    <h3>Solicitar devolucion</h3>
+    <form action="/message" method="post">
+        <input type="hidden" name="action" value="request_return">
+        <div class="row">
+            <div class="field">
+                <label>Factura conocida</label>
+                <select id="return-invoice-select" onchange="selectReturnInvoice(this)">
+                    <option value="">Pedido manual</option>
+                    {% for invoice in invoice_history %}
+                    <option value="{{ invoice.order_id }}" {% if loop.first %}selected{% endif %}>
+                        {{ invoice.order_id }} - {{ invoice.date }} - {{ '%.2f' | format(invoice.total) }} EUR
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label>Pedido</label>
+                <input id="return-purchase-id" type="text" name="purchase_id"
+                       value="{% if invoice_history %}{{ invoice_history[0].order_id }}{% endif %}" required>
+            </div>
+            <div class="field">
+                <label>Producto</label>
+                <select id="return-product-select" name="return_product">
+                    <option value="">Pedido completo</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Motivo</label>
+                <select name="return_reason" required>
+                    <option value="defectuoso">Producto defectuoso</option>
+                    <option value="equivocado">Producto equivocado</option>
+                    <option value="expectativas">No satisface expectativas</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Comentario</label>
+                <input type="text" name="return_comment">
+            </div>
+        </div>
+        <p><button type="submit">Enviar solicitud de devolucion</button></p>
+    </form>
+</div>
+
 {% if notifications %}
 <div class="box">
     <h3>Notificaciones del sistema</h3>
@@ -76,35 +120,6 @@
         <div class="invoice-footer">
             <a class="invoice-link" href="{{ url_for('invoice_print', invoice_id=invoice.invoice_id) }}" target="_blank">Imprimir / Guardar PDF</a>
         </div>
-        <form action="/message" method="post" class="subbox">
-            <input type="hidden" name="action" value="request_return">
-            <input type="hidden" name="purchase_id" value="{{ invoice.order_id }}">
-            <p><strong>Solicitar devolucion</strong></p>
-            <div class="row">
-                <div class="field">
-                    <label>Producto</label>
-                    <select name="return_product">
-                        <option value="">Pedido completo</option>
-                        {% for item in invoice['items'] %}
-                        <option value="{{ item.id or item.name }}">{{ item.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="field">
-                    <label>Motivo</label>
-                    <select name="return_reason" required>
-                        <option value="defectuoso">Producto defectuoso</option>
-                        <option value="equivocado">Producto equivocado</option>
-                        <option value="expectativas">No satisface expectativas</option>
-                    </select>
-                </div>
-                <div class="field">
-                    <label>Comentario</label>
-                    <input type="text" name="return_comment">
-                </div>
-            </div>
-            <p><button type="submit">Enviar solicitud de devolucion</button></p>
-        </form>
         {% endif %}
         {% if notification.kind == 'devolucion' %}
         {% set resolution = notification.data %}
@@ -352,6 +367,8 @@
 </template>
 
 <script>
+const returnInvoices = {{ invoice_history | tojson }};
+
 function refreshRowNumbers() {
     const rows = document.querySelectorAll('#restrictions-body .restriction-row');
     rows.forEach((row, idx) => {
@@ -390,7 +407,58 @@ function setDeliveryAddress(select) {
     }
 }
 
+function selectedReturnInvoice(orderId) {
+    return returnInvoices.find((invoice) => String(invoice.order_id) === String(orderId));
+}
+
+function productOptionValue(item) {
+    return item.id || item.name || '';
+}
+
+function refreshReturnProducts(invoice) {
+    const productSelect = document.getElementById('return-product-select');
+    if (!productSelect) {
+        return;
+    }
+
+    productSelect.innerHTML = '';
+    const fullOrder = document.createElement('option');
+    fullOrder.value = '';
+    fullOrder.textContent = 'Pedido completo';
+    productSelect.appendChild(fullOrder);
+
+    if (!invoice || !Array.isArray(invoice.items)) {
+        return;
+    }
+
+    invoice.items.forEach((item) => {
+        const option = document.createElement('option');
+        option.value = productOptionValue(item);
+        const quantity = item.quantity ? ` x${item.quantity}` : '';
+        option.textContent = `${item.name || item.id || 'Producto'}${quantity}`;
+        productSelect.appendChild(option);
+    });
+}
+
+function selectReturnInvoice(select) {
+    const purchaseInput = document.getElementById('return-purchase-id');
+    const invoice = selectedReturnInvoice(select.value);
+    if (purchaseInput) {
+        purchaseInput.value = select.value || '';
+    }
+    refreshReturnProducts(invoice);
+}
+
+function initReturnForm() {
+    const select = document.getElementById('return-invoice-select');
+    if (!select) {
+        return;
+    }
+    selectReturnInvoice(select);
+}
+
 refreshRowNumbers();
+initReturnForm();
 </script>
 </body>
 </html>
