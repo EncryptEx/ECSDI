@@ -17,6 +17,7 @@ Ventas
 
 """
 import argparse
+import re
 from FlaskServer import shutdown_server
 from flask import Flask, request
 from requests import ConnectionError
@@ -64,7 +65,7 @@ from AgentCommunication import (
     serialize_graph,
     set_tracer_url,
 )
-from GeoUtils import distance_from_address_km
+from GeoUtils import distance_from_address_km, location_for_logistics_port
 from RuntimeInfo import purchase_row, render_runtime_info, rows_from_sequence, table_section
 
 app = Flask(__name__)
@@ -94,6 +95,33 @@ def product_name(item):
     return str(item.get('name') or item.get('id') or '').strip()
 
 
+def port_from_address(address):
+    match = re.search(r':(\d+)(?:/|$)', str(address or ''))
+    return int(match.group(1)) if match else None
+
+
+def logistics_center_location_hint(address):
+    port = port_from_address(address)
+    return location_for_logistics_port(port) if port is not None else {}
+
+
+def logistics_centers_by_distance(addresses, delivery_address):
+    centers = []
+    for address in addresses:
+        location = logistics_center_location_hint(address)
+        distance = distance_from_address_km(delivery_address, location)
+        centers.append({
+            'address': address,
+            'location': location,
+            'distance_km': distance,
+        })
+    centers.sort(key=lambda item: (
+        item['distance_km'] if item['distance_km'] is not None else float('inf'),
+        item['address']
+    ))
+    return centers
+
+
 def is_external_product(item):
     if item.get('external') is not None:
         return bool(item.get('external'))
@@ -117,7 +145,8 @@ def item_identity(item):
 
 def merge_purchase(existing, incoming):
     merged = dict(existing)
-    for key in ('id', 'client_id', 'client_iban', 'delivery_address', 'delivery_date', 'transportista', 'tracking_id'):
+    for key in ('id', 'client_id', 'client_iban', 'delivery_address', 'delivery_date',
+                'delivery_deadline', 'transportista', 'tracking_id'):
         if incoming.get(key):
             merged[key] = incoming[key]
 
@@ -476,6 +505,7 @@ def message():
 
     incoming_purchase = purchase_from_content(graph, content)
     delivery_address = incoming_purchase.get('delivery_address') or delivery_address_from_purchase(graph, content)
+    delivery_deadline = incoming_purchase.get('delivery_deadline') or ''
     client_id = incoming_purchase.get('client_id') or sender
     client_iban = incoming_purchase.get('client_iban') or ''
     purchase_id = incoming_purchase.get('id') or str(uuid4())
@@ -501,6 +531,9 @@ def message():
         return serialize_graph(response)
 
     product_info = fetch_product_info(products_to_buy)
+    if delivery_deadline:
+        for product in product_info:
+            product['delivery_deadline'] = delivery_deadline
     product_by_name = {product_name(product).lower(): product for product in product_info}
     warehouse_products = {
         product_name(product): int(product.get('quantity', products_to_buy.get(product_name(product), 1)))
@@ -517,6 +550,8 @@ def message():
     log(f'Processing PeticionCompra: {products_to_buy}')
     if delivery_address:
         log(f'Delivery address: {delivery_address}')
+    if delivery_deadline:
+        log(f'Max delivery deadline: {delivery_deadline}')
 
     register_client_in_tesorero(client_id, client_iban, delivery_address)
 
@@ -533,63 +568,59 @@ def message():
         return serialize_graph(response)
 
     remaining_warehouse = dict(warehouse_products)
-    center_candidates = []
-    log(f'Logistics centers available: {centros_logisticos}')
-    for centro_addr in centros_logisticos:
+    assignments_by_center = {}
+    center_by_address = {
+        center['address']: center
+        for center in logistics_centers_by_distance(centros_logisticos, delivery_address)
+    }
+    sorted_centers = list(center_by_address.values())
+    log(f'Logistics centers ordered by proximity: {[center["address"] for center in sorted_centers]}')
+
+    for product, quantity in warehouse_products.items():
+        for center in sorted_centers:
+            centro_addr = center['address']
+            try:
+                exists_request = build_line_request(
+                    ECSDI.PeticionExisteLineaComanda,
+                    {product: quantity},
+                    sender=log_prefix,
+                    receiver='CENTRO_LOGISTICO',
+                    performative=ACL['query-if'],
+                    message_name='existe-producto',
+                    delivery_address=delivery_address,
+                    delivery_deadline=delivery_deadline
+                )
+                resp = send_graph_message(centro_addr, exists_request)
+            except ConnectionError:
+                log(f'Center {centro_addr} unreachable for product={product}')
+                continue
+            except Exception as exc:
+                log(f'Center {centro_addr} returned invalid existence response for product={product}: {exc}')
+                continue
+
+            if not response_ok(resp):
+                log(f'Center {centro_addr} refused existence request: {response_text(resp, "ERROR")}')
+                continue
+
+            availability = availability_from_response(resp)
+            response_location = logistics_location_from_response(resp)
+            if response_location.get('address') or response_location.get('lat') is not None:
+                center['location'] = response_location
+                center['distance_km'] = distance_from_address_km(delivery_address, response_location)
+            distance = center['distance_km']
+            distance_label = f'{distance:.2f} km' if distance is not None else 'distancia desconocida'
+            available = bool(availability.get(product))
+            log(f'Center {centro_addr} availability product={product}: {available}; distance={distance_label}')
+            if available:
+                assignments_by_center.setdefault(centro_addr, {})[product] = quantity
+                break
+
+        if product not in {p for assignment in assignments_by_center.values() for p in assignment.keys()}:
+            log(f'No center with stock found for product={product}')
+
+    for centro_addr, to_buy_here in assignments_by_center.items():
         try:
-            exists_request = build_line_request(
-                ECSDI.PeticionExisteLineaComanda,
-                remaining_warehouse,
-                sender=log_prefix,
-                receiver='CENTRO_LOGISTICO',
-                performative=ACL['query-if'],
-                message_name='existe-producto'
-            )
-            resp = send_graph_message(centro_addr, exists_request)
-        except ConnectionError:
-            log(f'Center {centro_addr} unreachable')
-            continue
-        except Exception as exc:
-            log(f'Center {centro_addr} returned invalid existence response: {exc}')
-            continue
-
-        if not response_ok(resp):
-            log(f'Center {centro_addr} refused existence request: {response_text(resp, "ERROR")}')
-            continue
-
-        availability = availability_from_response(resp)
-        location = logistics_location_from_response(resp)
-        distance = distance_from_address_km(delivery_address, location)
-        center_candidates.append({
-            'address': centro_addr,
-            'availability': availability,
-            'location': location,
-            'distance_km': distance,
-        })
-        distance_label = f'{distance:.2f} km' if distance is not None else 'distancia desconocida'
-        log(
-            f'Center {centro_addr} availability: {availability}; '
-            f'location={location.get("address", "")}; distance={distance_label}'
-        )
-
-    center_candidates.sort(key=lambda item: (
-        item['distance_km'] if item['distance_km'] is not None else float('inf'),
-        item['address']
-    ))
-
-    for center in center_candidates:
-        if not remaining_warehouse:
-            break
-
-        centro_addr = center['address']
-        availability = center['availability']
-
-        to_buy_here = {p: remaining_warehouse[p] for p, ok in availability.items() if ok and p in remaining_warehouse}
-        if not to_buy_here:
-            log(f'Center {centro_addr} cannot handle any remaining product, skipping')
-            continue
-
-        try:
+            center = center_by_address.get(centro_addr, {'distance_km': None})
             distance = center['distance_km']
             distance_label = f'{distance:.2f} km' if distance is not None else 'distancia desconocida'
             log(f'Assigning lot in {centro_addr} ({distance_label}): {to_buy_here}')
@@ -597,6 +628,8 @@ def message():
             for product, quantity in to_buy_here.items():
                 item = dict(product_by_name.get(product.lower(), {'name': product, 'price': 0.0}))
                 item['quantity'] = quantity
+                if delivery_deadline:
+                    item['delivery_deadline'] = delivery_deadline
                 assignment_payload[product] = item
             buy_request = build_lot_assignment_request(
                 assignment_payload,
@@ -604,7 +637,8 @@ def message():
                 receiver='CENTRO_LOGISTICO',
                 delivery_address=delivery_address,
                 purchase_id=purchase_id,
-                client_id=client_id
+                client_id=client_id,
+                delivery_deadline=delivery_deadline
             )
             buy_resp = send_graph_message(centro_addr, buy_request)
             if response_ok(buy_resp):
@@ -635,6 +669,7 @@ def message():
             'client_id': client_id,
             'client_iban': client_iban,
             'delivery_address': delivery_address,
+            'delivery_deadline': delivery_deadline,
             'items': assigned_items + fully_external_items
         }
         compras[purchase_id] = purchase
@@ -645,6 +680,7 @@ def message():
                 'client_id': client_id,
                 'client_iban': client_iban,
                 'delivery_address': delivery_address,
+                'delivery_deadline': delivery_deadline,
                 'items': fully_external_items
             }
             if not notify_external_seller(external_purchase):

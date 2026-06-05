@@ -29,6 +29,7 @@ def purchase_row(purchase):
         'id': purchase.get('id', ''),
         'client_id': purchase.get('client_id', ''),
         'delivery_address': purchase.get('delivery_address', ''),
+        'delivery_deadline': purchase.get('delivery_deadline', ''),
         'delivery_date': purchase.get('delivery_date', ''),
         'transportista': purchase.get('transportista', ''),
         'tracking_id': purchase.get('tracking_id', ''),

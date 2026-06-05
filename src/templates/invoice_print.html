@@ -32,6 +32,9 @@
     <span><strong>Fecha:</strong> {{ invoice.date }}</span>
     <span><strong>Cliente:</strong> {{ invoice.client_id }}</span>
     <span><strong>Direccion de entrega:</strong> {{ invoice.delivery_address }}</span>
+    {% if invoice.delivery_deadline %}
+    <span><strong>Plazo maximo:</strong> {{ invoice.delivery_deadline }}</span>
+    {% endif %}
     <span><strong>IBAN:</strong> {{ invoice.client_iban }}</span>
 </section>
 

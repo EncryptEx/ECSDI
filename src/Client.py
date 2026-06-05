@@ -37,6 +37,7 @@ from AgentCommunication import (
     build_directory_unregister,
     build_feedback_response,
     build_purchase_request,
+    build_return_request,
     build_search_request,
     build_status_response,
     directory_addresses_from_response,
@@ -50,6 +51,7 @@ from AgentCommunication import (
     purchase_result_total,
     products_from_search_response,
     recommendation_notice_from_content,
+    return_resolution_from_content,
     response_ok,
     response_text,
     send_graph_message,
@@ -80,6 +82,7 @@ last_restrictions = [
 ]
 last_delivery_address = ''
 last_delivery_address_choice = ''
+last_delivery_deadline = ''
 last_client_iban = ''
 iface_message = ''
 has_searched = False
@@ -159,10 +162,22 @@ def build_invoice_record(invoice_data):
         'date': datetime.now().strftime('%d/%m/%Y %H:%M'),
         'client_id': invoice_data.get('client_id') or purchase.get('client_id') or clientid or log_prefix,
         'delivery_address': invoice_data.get('delivery_address') or purchase.get('delivery_address', ''),
+        'delivery_deadline': invoice_data.get('delivery_deadline') or purchase.get('delivery_deadline', ''),
         'client_iban': mask_iban(purchase.get('client_iban', '')),
         'items': items,
         'total': total,
     }
+
+
+def normalize_delivery_deadline(value):
+    raw = str(value or '').strip()
+    if not raw:
+        return '', None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return '', 'El plazo maximo de entrega debe ser una fecha y hora validas'
+    return parsed.replace(microsecond=0).isoformat(timespec='minutes'), None
 
 
 def store_invoice_notification(invoice_data):
@@ -183,6 +198,28 @@ def store_invoice_notification(invoice_data):
     body = f'Pedido {invoice["order_id"]}: factura emitida por {invoice["total"]:.2f} EUR'
     add_notification('factura', 'Factura de compra recibida', body, invoice)
     return invoice
+
+
+def store_return_resolution_notification(resolution):
+    accepted = bool(resolution.get('ok'))
+    purchase_id = resolution.get('purchase_id') or 'compra'
+    product = resolution.get('product') or 'pedido completo'
+    reason = resolution.get('reason') or 'sin motivo'
+    title = 'Devolucion aceptada' if accepted else 'Devolucion rechazada'
+    body = resolution.get('message') or title
+    if accepted:
+        body = (
+            f'Compra {purchase_id}, producto {product}: reembolso de '
+            f'{float(resolution.get("amount") or 0.0):.2f} EUR. '
+            f'Reenvia el paquete a {resolution.get("return_address") or "direccion indicada por la tienda"}'
+        )
+        if resolution.get('transportista'):
+            body += f' mediante {resolution["transportista"]}'
+        if resolution.get('tracking_id'):
+            body += f' (referencia {resolution["tracking_id"]})'
+    else:
+        body = f'Compra {purchase_id}, producto {product}, motivo {reason}: {body}'
+    return add_notification('devolucion', title, body, resolution, status='accepted' if accepted else 'rejected')
 
 
 def find_agent(agent_type, all_agents=False):
@@ -235,6 +272,17 @@ def receive_agent_message(graph):
         invoice = store_invoice_notification(invoice_data)
         text = 'FACTURA RECIBIDA' if invoice else 'FACTURA NO DESTINADA A ESTE CLIENTE'
         return build_status_response(clientid or log_prefix, sender, ok=True, text=text,
+                                     conversation_id=conversation_id)
+
+    if has_type(graph, content, ECSDI.ResultadoDevolucion):
+        resolution = return_resolution_from_content(graph, content)
+        target_client = resolution.get('client_id') or ''
+        own_client = clientid or log_prefix
+        if target_client and own_client and str(target_client) != str(own_client):
+            return build_status_response(clientid or log_prefix, sender, ok=True, text='DEVOLUCION NO DESTINADA',
+                                         conversation_id=conversation_id)
+        store_return_resolution_notification(resolution)
+        return build_status_response(clientid or log_prefix, sender, ok=True, text='RESOLUCION DEVOLUCION RECIBIDA',
                                      conversation_id=conversation_id)
 
     if has_type(graph, content, ECSDI.PeticionFeedbackCliente):
@@ -307,6 +355,45 @@ def submit_feedback_to_valorador(notification_id, product_id, rating, comment):
             notification['status'] = 'sent'
             notification['body'] += f' - enviado feedback {rating:.1f}/5'
             break
+    return None
+
+
+def submit_return_request(purchase_id, product, reason, comment):
+    if not purchase_id:
+        return 'No se puede solicitar devolucion sin pedido'
+    if reason not in {'defectuoso', 'equivocado', 'expectativas'}:
+        return 'Motivo de devolucion invalido'
+
+    addresses, error = find_agent('VENTAS')
+    if error:
+        return error
+
+    graph = build_return_request(
+        purchase_id,
+        product=product,
+        reason=reason,
+        comment=comment,
+        sender=clientid or log_prefix,
+        receiver='VENTAS',
+        client_id=clientid or log_prefix
+    )
+    try:
+        response = send_graph_message(addresses[0], graph)
+    except ConnectionError:
+        return 'No se puede conectar con VENTAS'
+    except Exception:
+        return 'Respuesta invalida de VENTAS'
+
+    content = get_message_properties(response)['content']
+    if has_type(response, content, ECSDI.ResultadoDevolucion):
+        resolution = return_resolution_from_content(response, content)
+        store_return_resolution_notification(resolution)
+        return None if resolution.get('ok') else resolution.get('message') or 'Devolucion rechazada'
+
+    if not response_ok(response):
+        return response_text(response, 'VENTAS rechazo la devolucion')
+    add_notification('devolucion', 'Solicitud de devolucion enviada',
+                     f'Compra {purchase_id}: solicitud registrada', {'purchase_id': purchase_id})
     return None
 
 
@@ -415,6 +502,7 @@ def message():
     global last_restrictions
     global last_delivery_address
     global last_delivery_address_choice
+    global last_delivery_deadline
     global last_client_iban
     global has_searched
     global last_invoice
@@ -501,8 +589,10 @@ def message():
             if selected_location is not None:
                 delivery_address = selected_location['address']
             client_iban = request.form.get('client_iban', '').strip()
+            delivery_deadline, deadline_error = normalize_delivery_deadline(request.form.get('delivery_deadline', ''))
             last_delivery_address = delivery_address
             last_delivery_address_choice = delivery_address_choice
+            last_delivery_deadline = delivery_deadline
             last_client_iban = client_iban
 
             if not assistant_proposal:
@@ -517,12 +607,16 @@ def message():
                 iface_message = 'El IBAN del cliente es obligatorio para procesar el cobro'
                 return redirect(url_for('.iface'))
 
+            if deadline_error:
+                iface_message = deadline_error
+                return redirect(url_for('.iface'))
+
             products = {}
             for item in assistant_proposal:
                 product_name = item['product']['name']
                 products[product_name] = products.get(product_name, 0) + 1
 
-            order_id, status, invoice_total = send_message(products, delivery_address, client_iban)
+            order_id, status, invoice_total = send_message(products, delivery_address, client_iban, delivery_deadline)
             if status == 'SENT':
                 iface_message = f'Pedido {order_id} enviat correctament. Ventas enviara la factura como notificacion.'
             else:
@@ -534,6 +628,7 @@ def message():
             last_restrictions = [empty_restriction_row()]
             last_delivery_address = ''
             last_delivery_address_choice = ''
+            last_delivery_deadline = ''
             last_client_iban = ''
             has_searched = False
 
@@ -560,6 +655,17 @@ def message():
                 iface_message = f'Feedback no enviado: {error}'
             else:
                 iface_message = 'Feedback enviado correctamente'
+
+        elif action == 'request_return':
+            purchase_id = request.form.get('purchase_id', '').strip()
+            product = request.form.get('return_product', '').strip()
+            reason = request.form.get('return_reason', '').strip()
+            comment = request.form.get('return_comment', '').strip()
+            error = submit_return_request(purchase_id, product, reason, comment)
+            if error:
+                iface_message = f'Devolucion no aceptada/enviada: {error}'
+            else:
+                iface_message = 'Solicitud de devolucion procesada'
 
         return redirect(url_for('.iface'))
 
@@ -609,6 +715,7 @@ def iface():
         proposal_total=proposal_total,
         delivery_address=last_delivery_address,
         delivery_address_choice=last_delivery_address_choice,
+        delivery_deadline=last_delivery_deadline,
         delivery_locations=DEMO_CLIENT_LOCATIONS,
         client_iban=last_client_iban,
         client_id=clientid or log_prefix,
@@ -673,7 +780,7 @@ def search_products(filters):
     return [], response_text(resp, 'Respuesta de error de CATALOGADOR')
 
 
-def send_message(products, delivery_address, client_iban):
+def send_message(products, delivery_address, client_iban, delivery_deadline=''):
     """
     Envia una solicitud de compra al agente de ventas
 
@@ -684,6 +791,7 @@ def send_message(products, delivery_address, client_iban):
     :param products: diccionario de productos a comprar
     :param delivery_address: direccion de entrega del cliente
     :param client_iban: datos bancarios del cliente para el cobro
+    :param delivery_deadline: fecha limite solicitada por el cliente
     :return: order id, estado y total de factura
     """
     global probcounter
@@ -697,6 +805,8 @@ def send_message(products, delivery_address, client_iban):
 
     log(f'New order {probid}: {products}')
     log(f'Delivery address for {probid}: {delivery_address}')
+    if delivery_deadline:
+        log(f'Max delivery deadline for {probid}: {delivery_deadline}')
     log(f'Billing data for {probid}: client_id={clientid or log_prefix}, iban={client_iban}')
 
     # Busca el agente de ventas en el servicio de directorio
@@ -733,15 +843,20 @@ def send_message(products, delivery_address, client_iban):
             sender=clientid or log_prefix,
             receiver='VENTAS',
             client_id=clientid or log_prefix,
-            client_iban=client_iban
+            client_iban=client_iban,
+            delivery_deadline=delivery_deadline
         )
         log(f'Sending RDF/FIPA PeticionCompra to VENTAS')
         try:
             resp = send_graph_message(ventasaddr, mess)
             if response_ok(resp):
                 invoice_total = purchase_result_total(resp, 0.0)
-                problems[probid][1] = f'SENT - factura {invoice_total:.2f} EUR'
-                log(f'{probid} sent successfully; invoice={invoice_total:.2f} EUR')
+                if invoice_total > 0:
+                    problems[probid][1] = f'SENT - factura {invoice_total:.2f} EUR'
+                    log(f'{probid} sent successfully; invoice={invoice_total:.2f} EUR')
+                else:
+                    problems[probid][1] = 'SENT - factura pendiente/notificada'
+                    log(f'{probid} sent successfully; invoice will arrive as notification')
                 return probid, 'SENT', invoice_total
             else:
                 problems[probid][1] = 'FAILED VENTAS'

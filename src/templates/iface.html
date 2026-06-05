@@ -49,6 +49,9 @@
             <span><strong>Fecha:</strong> {{ invoice.date }}</span>
             <span><strong>Cliente:</strong> {{ invoice.client_id }}</span>
             <span><strong>Direccion:</strong> {{ invoice.delivery_address }}</span>
+            {% if invoice.delivery_deadline %}
+            <span><strong>Plazo maximo:</strong> {{ invoice.delivery_deadline }}</span>
+            {% endif %}
             <span><strong>IBAN:</strong> {{ invoice.client_iban }}</span>
         </div>
         <table>
@@ -72,6 +75,55 @@
         <p class="invoice-total"><strong>TOTAL: {{ '%.2f' | format(invoice.total) }} EUR</strong></p>
         <div class="invoice-footer">
             <a class="invoice-link" href="{{ url_for('invoice_print', invoice_id=invoice.invoice_id) }}" target="_blank">Imprimir / Guardar PDF</a>
+        </div>
+        <form action="/message" method="post" class="subbox">
+            <input type="hidden" name="action" value="request_return">
+            <input type="hidden" name="purchase_id" value="{{ invoice.order_id }}">
+            <p><strong>Solicitar devolucion</strong></p>
+            <div class="row">
+                <div class="field">
+                    <label>Producto</label>
+                    <select name="return_product">
+                        <option value="">Pedido completo</option>
+                        {% for item in invoice['items'] %}
+                        <option value="{{ item.id or item.name }}">{{ item.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Motivo</label>
+                    <select name="return_reason" required>
+                        <option value="defectuoso">Producto defectuoso</option>
+                        <option value="equivocado">Producto equivocado</option>
+                        <option value="expectativas">No satisface expectativas</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Comentario</label>
+                    <input type="text" name="return_comment">
+                </div>
+            </div>
+            <p><button type="submit">Enviar solicitud de devolucion</button></p>
+        </form>
+        {% endif %}
+        {% if notification.kind == 'devolucion' %}
+        {% set resolution = notification.data %}
+        <div class="invoice-meta">
+            <span><strong>Compra:</strong> {{ resolution.purchase_id }}</span>
+            <span><strong>Producto:</strong> {{ resolution.product or 'pedido completo' }}</span>
+            <span><strong>Motivo:</strong> {{ resolution.reason }}</span>
+            {% if resolution.amount is defined %}
+            <span><strong>Importe:</strong> {{ '%.2f' | format(resolution.amount) }} EUR</span>
+            {% endif %}
+            {% if resolution.transportista %}
+            <span><strong>Mensajeria:</strong> {{ resolution.transportista }}</span>
+            {% endif %}
+            {% if resolution.tracking_id %}
+            <span><strong>Referencia:</strong> {{ resolution.tracking_id }}</span>
+            {% endif %}
+            {% if resolution.return_address %}
+            <span><strong>Enviar a:</strong> {{ resolution.return_address }}</span>
+            {% endif %}
         </div>
         {% endif %}
         {% if notification.kind == 'recomendacion' %}
@@ -265,6 +317,10 @@
         <div class="field">
             <label>Direccion de entrega</label>
             <input type="text" name="delivery_address" value="{{ delivery_address }}" required>
+        </div>
+        <div class="field">
+            <label>Plazo maximo de entrega</label>
+            <input type="datetime-local" name="delivery_deadline" value="{{ delivery_deadline }}">
         </div>
         <div class="field">
             <label>IBAN para el cobro</label>

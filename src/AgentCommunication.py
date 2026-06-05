@@ -26,6 +26,26 @@ DIRECTORY_AGENT = 'DirectoryService'
 # --- Packet tracer (fire-and-forget to Logger /trace endpoint) ---
 _tracer_url = None
 
+_AGENT_TYPE_ALIASES = {
+    'BANCO': 'ENTIDAD-BANCARIA',
+    'CATALOGO': 'CATALOGADOR',
+    'CATALOGADOR': 'CATALOGADOR',
+    'CENTRO-LOGISTICO': 'CENTRO-LOGISTICO',
+    'CLIENT': 'CLIENTE',
+    'CLIENTE': 'CLIENTE',
+    'DIRECTORIO': 'DIRECTORIO',
+    'DIRECTORY': 'DIRECTORIO',
+    'DIRECTORYSERVICE': 'DIRECTORIO',
+    'EMPRESA-VENDEDORA': 'EMPRESA-VENDEDORA',
+    'ENTIDAD-BANCARIA': 'ENTIDAD-BANCARIA',
+    'LOGGER': 'LOGGER',
+    'LOGISTICO': 'CENTRO-LOGISTICO',
+    'TESORERO': 'TESORERO',
+    'TRANSPORTISTA': 'TRANSPORTISTA',
+    'VALORADOR': 'VALORADOR',
+    'VENTAS': 'VENTAS',
+}
+
 
 def set_tracer_url(url):
     """Call once at agent startup after finding the Logger in the directory."""
@@ -47,23 +67,44 @@ def _fire_trace(from_agent, to_agent, msg_type, performative, ts, conv_id='', ms
         pass
 
 
+def _agent_port_from_address(address):
+    match = re.search(r':(\d+)(?:/|$)', str(address or ''))
+    return match.group(1) if match else None
+
+
+def _normalise_agent_name(agent_name, address=None):
+    raw = str(agent_name or 'unknown').strip()
+    if not raw:
+        raw = 'unknown'
+    canonical = re.sub(r'[\s_]+', '-', raw.upper())
+    match = re.match(r'^(.*?)-(\d+)$', canonical)
+    if match:
+        agent_type, port = match.group(1), match.group(2)
+    else:
+        agent_type, port = canonical, _agent_port_from_address(address)
+    agent_type = _AGENT_TYPE_ALIASES.get(agent_type, agent_type)
+    return f'{agent_type}-{port}' if port else agent_type
+
+
+def _should_trace_packet(msg_type, performative, phase):
+    # ECSDI.Respuesta is the technical HTTP/FIPA status ACK returned by many
+    # handlers, not a PDTool response protocol. Refuse ACKs are still useful.
+    return not (phase == 'response' and msg_type == 'Respuesta' and performative == 'inform')
+
+
 def _trace_graph_packet(graph, phase='request', dest_address=None):
     if not _tracer_url:
         return
     try:
         props = get_message_properties(graph)
-        from_agent = message_sender(props)
-        to_agent = str(props.get('receiver', 'unknown'))
-        # For outgoing requests, append the destination port so the tracer
-        # can distinguish multiple instances of the same agent type.
-        if dest_address and phase == 'request':
-            _m = re.search(r':(\d+)(?:/|$)', dest_address)
-            if _m:
-                to_agent = to_agent + '-' + _m.group(1)
+        from_agent = _normalise_agent_name(message_sender(props))
+        to_agent = _normalise_agent_name(props.get('receiver', 'unknown'), dest_address if phase == 'request' else None)
         content = props['content']
         content_types = [str(t).split('#')[-1] for t in graph.objects(content, RDF.type)]
         msg_type = content_types[0] if content_types else 'Message'
         performative = str(props.get('performative', '')).split('#')[-1]
+        if not _should_trace_packet(msg_type, performative, phase):
+            return
         conv_id = message_conversation(props) or ''
         msg_name = first_literal(graph, content, ECSDI.nombreMensaje, '')
         ts = _time.time()
@@ -516,12 +557,15 @@ def _add_line(graph, compra_node, product_name, quantity, price=None):
     line_price = price if price is not None else product_data.get('price')
     if line_price is not None:
         graph.add((line, ECSDI.precioLineaComanda, Literal(float(line_price), datatype=XSD.float)))
+    if product_data.get('delivery_deadline'):
+        graph.add((line, ECSDI.fechaEntregaMaxima, Literal(product_data['delivery_deadline'], datatype=XSD.dateTime)))
     graph.add((line, ECSDI.contiene_productos, product))
     graph.add((compra_node, ECSDI.contiene_lineas, line))
     return line
 
 
-def build_purchase_request(products, delivery_address, sender, receiver, client_id=None, client_iban=None):
+def build_purchase_request(products, delivery_address, sender, receiver, client_id=None, client_iban=None,
+                           delivery_deadline=None):
     graph, content = build_message_with_content(
         ECSDI.PeticionCompra,
         sender=sender,
@@ -538,6 +582,8 @@ def build_purchase_request(products, delivery_address, sender, receiver, client_
         graph.add((compra, ECSDI.numeroIBAN, Literal(client_iban)))
     if delivery_address:
         graph.add((compra, ECSDI.direccion, Literal(delivery_address)))
+    if delivery_deadline:
+        graph.add((compra, ECSDI.fechaEntregaMaxima, Literal(delivery_deadline, datatype=XSD.dateTime)))
     for product_name, quantity in products.items():
         if isinstance(quantity, dict):
             product_data = dict(quantity)
@@ -550,7 +596,8 @@ def build_purchase_request(products, delivery_address, sender, receiver, client_
 
 
 def build_line_request(content_type, products, sender, receiver, performative=ACL.request,
-                       message_name=None, delivery_address=None, purchase_id=None, client_id=None):
+                       message_name=None, delivery_address=None, purchase_id=None, client_id=None,
+                       delivery_deadline=None):
     graph, content = build_message_with_content(
         content_type,
         performative=performative,
@@ -567,10 +614,14 @@ def build_line_request(content_type, products, sender, receiver, performative=AC
         graph.add((compra, ECSDI.idCliente, Literal(client_id)))
     if delivery_address:
         graph.add((compra, ECSDI.direccion, Literal(delivery_address)))
+    if delivery_deadline:
+        graph.add((compra, ECSDI.fechaEntregaMaxima, Literal(delivery_deadline, datatype=XSD.dateTime)))
     for product_name, quantity in products.items():
         if isinstance(quantity, dict):
             product_data = dict(quantity)
             product_data.setdefault('name', product_name)
+            if delivery_deadline and not product_data.get('delivery_deadline'):
+                product_data['delivery_deadline'] = delivery_deadline
             line_quantity = product_data.get('quantity', 1)
             _add_line(graph, compra, product_data, line_quantity)
         else:
@@ -611,6 +662,9 @@ def line_items_from_content(graph, content):
         product['quantity'] = quantity
         if price is not None:
             product['line_price'] = price
+        delivery_deadline = first_literal(graph, line, ECSDI.fechaEntregaMaxima, '')
+        if delivery_deadline:
+            product['delivery_deadline'] = delivery_deadline
         items.append(product)
     return items
 
@@ -623,6 +677,7 @@ def purchase_from_content(graph, content):
         'client_iban': first_literal(graph, content, ECSDI.numeroIBAN, ''),
         'delivery_address': first_literal(graph, content, ECSDI.direccion, ''),
         'delivery_date': first_literal(graph, content, ECSDI.fechaEntrega, ''),
+        'delivery_deadline': first_literal(graph, content, ECSDI.fechaEntregaMaxima, ''),
         'transportista': first_literal(graph, content, ECSDI.nombreTransportista, ''),
         'tracking_id': first_literal(graph, content, ECSDI.idEnvio, ''),
         'items': []
@@ -635,10 +690,15 @@ def purchase_from_content(graph, content):
         'client_iban': first_literal(graph, compra, ECSDI.numeroIBAN, purchase['client_iban']),
         'delivery_address': first_literal(graph, compra, ECSDI.direccion, purchase['delivery_address']),
         'delivery_date': first_literal(graph, compra, ECSDI.fechaEntrega, purchase['delivery_date']),
+        'delivery_deadline': first_literal(graph, compra, ECSDI.fechaEntregaMaxima, purchase['delivery_deadline']),
         'transportista': first_literal(graph, compra, ECSDI.nombreTransportista, purchase['transportista']),
         'tracking_id': first_literal(graph, compra, ECSDI.idEnvio, purchase['tracking_id']),
         'items': line_items_from_content(graph, content)
     })
+    if not purchase.get('delivery_deadline'):
+        line_deadlines = [item.get('delivery_deadline') for item in purchase.get('items') or [] if item.get('delivery_deadline')]
+        if line_deadlines:
+            purchase['delivery_deadline'] = sorted(line_deadlines)[0]
     return purchase
 
 
@@ -734,6 +794,8 @@ def build_purchase_result(ok, sender, receiver, conversation_id=None, total=0.0,
             graph.add((content, ECSDI.idCliente, Literal(purchase['client_id'])))
         if purchase.get('delivery_address'):
             graph.add((content, ECSDI.direccion, Literal(purchase['delivery_address'])))
+        if purchase.get('delivery_deadline'):
+            graph.add((content, ECSDI.fechaEntregaMaxima, Literal(purchase['delivery_deadline'], datatype=XSD.dateTime)))
     return graph
 
 
@@ -753,6 +815,7 @@ def purchase_result_from_content(graph, content):
         'purchase_id': first_literal(graph, content, ECSDI.idCompra, purchase.get('id', '')),
         'client_id': first_literal(graph, content, ECSDI.idCliente, purchase.get('client_id', '')),
         'delivery_address': first_literal(graph, content, ECSDI.direccion, purchase.get('delivery_address', '')),
+        'delivery_deadline': first_literal(graph, content, ECSDI.fechaEntregaMaxima, purchase.get('delivery_deadline', '')),
         'purchase': purchase
     }
 
@@ -771,6 +834,8 @@ def add_shipping_notice_data(graph, content, purchase, transportista='Transporti
         graph.add((content, ECSDI.idCliente, Literal(purchase['client_id'])))
     if purchase.get('delivery_address'):
         graph.add((content, ECSDI.direccion, Literal(purchase['delivery_address'])))
+    if purchase.get('delivery_deadline'):
+        graph.add((content, ECSDI.fechaEntregaMaxima, Literal(purchase['delivery_deadline'], datatype=XSD.dateTime)))
     if transportista:
         graph.add((content, ECSDI.nombreTransportista, Literal(transportista)))
     if delivery_date:
@@ -813,6 +878,7 @@ def shipping_notice_from_content(graph, content):
         'delivery_address': first_literal(graph, content, ECSDI.direccion, purchase.get('delivery_address', '')),
         'transportista': first_literal(graph, content, ECSDI.nombreTransportista, ''),
         'delivery_date': first_literal(graph, content, ECSDI.fechaEntrega, ''),
+        'delivery_deadline': first_literal(graph, content, ECSDI.fechaEntregaMaxima, purchase.get('delivery_deadline', '')),
         'tracking_id': first_literal(graph, content, ECSDI.idEnvio, ''),
         'message': first_literal(graph, content, ECSDI.mensajePersonalizado, ''),
         'purchase': purchase
@@ -853,6 +919,8 @@ def build_shipping_quote_request(purchase, sender, receiver, weight=1.0):
     graph.add((content, ECSDI.pesoLote, Literal(float(weight), datatype=XSD.float)))
     if purchase.get('delivery_address'):
         graph.add((content, ECSDI.direccion, Literal(purchase['delivery_address'])))
+    if purchase.get('delivery_deadline'):
+        graph.add((content, ECSDI.fechaEntregaMaxima, Literal(purchase['delivery_deadline'], datatype=XSD.dateTime)))
     compra = add_purchase(graph, purchase)
     graph.add((content, ECSDI.contiene_compra, compra))
     return graph
@@ -870,6 +938,8 @@ def build_shipping_counter_offer_request(purchase, offer, sender, receiver, weig
     graph.add((content, ECSDI.pesoLote, Literal(float(weight), datatype=XSD.float)))
     if purchase.get('delivery_address'):
         graph.add((content, ECSDI.direccion, Literal(purchase['delivery_address'])))
+    if purchase.get('delivery_deadline'):
+        graph.add((content, ECSDI.fechaEntregaMaxima, Literal(purchase['delivery_deadline'], datatype=XSD.dateTime)))
     compra = add_purchase(graph, purchase)
     graph.add((content, ECSDI.contiene_compra, compra))
     return graph
@@ -887,6 +957,8 @@ def build_shipping_accept_offer_request(purchase, offer, sender, receiver, trans
     graph.add((content, ECSDI.pesoLote, Literal(float(weight), datatype=XSD.float)))
     if transportista:
         graph.add((content, ECSDI.nombreTransportista, Literal(transportista)))
+    if purchase.get('delivery_deadline'):
+        graph.add((content, ECSDI.fechaEntregaMaxima, Literal(purchase['delivery_deadline'], datatype=XSD.dateTime)))
     compra = add_purchase(graph, purchase)
     graph.add((content, ECSDI.contiene_compra, compra))
     return graph
@@ -898,6 +970,7 @@ def shipping_request_from_content(graph, content):
         'weight': first_float(graph, content, ECSDI.pesoLote, 1.0),
         'counter_offer': first_float(graph, content, ECSDI.precioOfertaTransporte),
         'delivery_address': first_literal(graph, content, ECSDI.direccion, ''),
+        'delivery_deadline': first_literal(graph, content, ECSDI.fechaEntregaMaxima, ''),
         'transportista': first_literal(graph, content, ECSDI.nombreTransportista, '')
     }
 
@@ -961,7 +1034,7 @@ def products_from_product_info_response(graph):
 
 
 def build_lot_assignment_request(products, sender, receiver, delivery_address='',
-                                 purchase_id=None, client_id=None):
+                                 purchase_id=None, client_id=None, delivery_deadline=None):
     return build_line_request(
         ECSDI.PeticionAsignarLoteProducto,
         products,
@@ -971,7 +1044,8 @@ def build_lot_assignment_request(products, sender, receiver, delivery_address=''
         message_name='asignale-un-lote-a-este-producto',
         delivery_address=delivery_address,
         purchase_id=purchase_id,
-        client_id=client_id
+        client_id=client_id,
+        delivery_deadline=delivery_deadline
     )
 
 
@@ -995,6 +1069,92 @@ def client_data_from_request(graph, content):
         'id': first_literal(graph, content, ECSDI.idCliente, ''),
         'iban': first_literal(graph, content, ECSDI.numeroIBAN, ''),
         'address': first_literal(graph, content, ECSDI.direccion, '')
+    }
+
+
+def build_return_request(purchase_id, product='', reason='', comment='', sender=DEFAULT_AGENT,
+                         receiver=DEFAULT_AGENT, client_id=''):
+    graph, content = build_message_with_content(
+        ECSDI.PeticionDevolucion,
+        performative=ACL.request,
+        sender=sender,
+        receiver=receiver,
+        message_name='Recibir peticion devolucion'
+    )
+    graph.add((content, ECSDI.idCompra, Literal(purchase_id)))
+    if client_id:
+        graph.add((content, ECSDI.idCliente, Literal(client_id)))
+    if reason:
+        graph.add((content, ECSDI.motivoDevolucion, Literal(reason)))
+    if comment:
+        graph.add((content, ECSDI.mensajePersonalizado, Literal(comment)))
+    if product:
+        product_node = add_product(graph, {'name': product, 'id': product})
+        graph.add((content, ECSDI.contiene_productos, product_node))
+    return graph
+
+
+def return_request_from_content(graph, content):
+    product_node = next(graph.objects(content, ECSDI.contiene_productos), None)
+    product = product_from_graph(graph, product_node) if product_node is not None else {}
+    product_key = product.get('id') or product.get('name') or ''
+    return {
+        'purchase_id': first_literal(graph, content, ECSDI.idCompra, ''),
+        'client_id': first_literal(graph, content, ECSDI.idCliente, ''),
+        'product': product_key,
+        'reason': first_literal(graph, content, ECSDI.motivoDevolucion, ''),
+        'comment': first_literal(graph, content, ECSDI.mensajePersonalizado, ''),
+    }
+
+
+def build_return_resolution(ok, return_data, sender, receiver, conversation_id=None, text='',
+                            amount=0.0, transportista='', tracking_id='', return_address=''):
+    graph, content = build_message_with_content(
+        ECSDI.ResultadoDevolucion,
+        performative=ACL.inform if ok else ACL.refuse,
+        sender=sender,
+        receiver=receiver,
+        conversation_id=conversation_id,
+        message_name='Notificar resolucion devolucion'
+    )
+    graph.add((content, ECSDI.existe, Literal(bool(ok), datatype=XSD.boolean)))
+    graph.add((content, ECSDI.resultado, Literal(text or ('DEVOLUCION ACEPTADA' if ok else 'DEVOLUCION RECHAZADA'))))
+    graph.add((content, ECSDI.cantidadTransferencia, Literal(float(amount), datatype=XSD.float)))
+    if return_data.get('purchase_id'):
+        graph.add((content, ECSDI.idCompra, Literal(return_data['purchase_id'])))
+    if return_data.get('client_id'):
+        graph.add((content, ECSDI.idCliente, Literal(return_data['client_id'])))
+    if return_data.get('reason'):
+        graph.add((content, ECSDI.motivoDevolucion, Literal(return_data['reason'])))
+    if return_data.get('comment'):
+        graph.add((content, ECSDI.mensajePersonalizado, Literal(return_data['comment'])))
+    if return_data.get('product'):
+        product_node = add_product(graph, {'name': return_data['product'], 'id': return_data['product']})
+        graph.add((content, ECSDI.contiene_productos, product_node))
+    if transportista:
+        graph.add((content, ECSDI.nombreTransportista, Literal(transportista)))
+    if tracking_id:
+        graph.add((content, ECSDI.idEnvio, Literal(tracking_id)))
+    if return_address:
+        graph.add((content, ECSDI.direccion, Literal(return_address)))
+    return graph
+
+
+def return_resolution_from_content(graph, content):
+    product_node = next(graph.objects(content, ECSDI.contiene_productos), None)
+    product = product_from_graph(graph, product_node) if product_node is not None else {}
+    return {
+        'ok': first_bool(graph, content, ECSDI.existe, False),
+        'purchase_id': first_literal(graph, content, ECSDI.idCompra, ''),
+        'client_id': first_literal(graph, content, ECSDI.idCliente, ''),
+        'product': product.get('id') or product.get('name') or '',
+        'reason': first_literal(graph, content, ECSDI.motivoDevolucion, ''),
+        'comment': first_literal(graph, content, ECSDI.mensajePersonalizado, ''),
+        'amount': first_float(graph, content, ECSDI.cantidadTransferencia, 0.0),
+        'transportista': first_literal(graph, content, ECSDI.nombreTransportista, ''),
+        'tracking_id': first_literal(graph, content, ECSDI.idEnvio, ''),
+        'return_address': first_literal(graph, content, ECSDI.direccion, ''),
+        'message': first_literal(graph, content, ECSDI.resultado, ''),
     }
 
 
@@ -1149,6 +1309,8 @@ def add_purchase(graph, purchase, subject=None):
         graph.add((subject, ECSDI.direccion, Literal(purchase['delivery_address'])))
     if purchase.get('delivery_date'):
         graph.add((subject, ECSDI.fechaEntrega, Literal(purchase['delivery_date'], datatype=XSD.dateTime)))
+    if purchase.get('delivery_deadline'):
+        graph.add((subject, ECSDI.fechaEntregaMaxima, Literal(purchase['delivery_deadline'], datatype=XSD.dateTime)))
     if purchase.get('transportista'):
         graph.add((subject, ECSDI.nombreTransportista, Literal(purchase['transportista'])))
     if purchase.get('tracking_id'):

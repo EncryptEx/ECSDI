@@ -166,8 +166,7 @@ if __name__ == '__main__':
     diraddress = args.dir
 
     agentadd = f'http://{hostaddr}:{args.port}'
-    agentid = f'{BANK_NAME.replace(" ", "_")}-{args.port}'
-    mess = build_directory_register(agentid, 'ENTIDAD_BANCARIA', agentadd, sender=agentid)
+    mess = build_directory_register(log_prefix, 'ENTIDAD_BANCARIA', agentadd, sender=log_prefix)
 
     done = False
     while not done:
@@ -178,9 +177,9 @@ if __name__ == '__main__':
             pass
 
     if response_ok(resp):
-        log(f'{agentid} successfully registered')
+        log(f'{log_prefix} successfully registered')
         try:
-            logger_resp = send_graph_message(diraddress, build_directory_search('LOGGER', sender=agentid))
+            logger_resp = send_graph_message(diraddress, build_directory_search('LOGGER', sender=log_prefix))
             if response_ok(logger_resp):
                 addresses = directory_addresses_from_response(logger_resp)
                 if addresses:
@@ -189,7 +188,7 @@ if __name__ == '__main__':
             pass
         app.run(host=hostname, port=args.port, debug=False, use_reloader=False)
 
-        log(f'{agentid} unregistering')
-        send_graph_message(diraddress, build_directory_unregister(agentid, sender=agentid))
+        log(f'{log_prefix} unregistering')
+        send_graph_message(diraddress, build_directory_unregister(log_prefix, sender=log_prefix))
     else:
         log('Unable to register')
